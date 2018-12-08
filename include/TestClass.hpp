@@ -2,7 +2,7 @@
 
 class TestClass {
 public:
-	void test();
+    void test();
 private:
-	int a;
+    int a;
 };

@@ -2,5 +2,5 @@
 #include <iostream>
 
 void TestClass::test() {
-	std::cout << "Success.\n";
+    std::cout << "Success.\n";
 }
