@@ -5,9 +5,9 @@
 ## Don't wrap braces
 
 ## Naming conventions
-* Upper camel case for class and enum names
+* Upper camel case for class names
 * Lower camel case for function and variable names
-* All upper case for macros and enumeration entities
+* All upper case for macros and enumeration entries
 
 ## No `using namespace`
 

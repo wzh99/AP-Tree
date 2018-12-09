@@ -2,8 +2,8 @@
 
 ## Type inference: `auto`
 
-## Smart pointer: `std::unique_ptr`
-
 ## Range-based for-loop
+
+## Smart pointer with exclusive ownership: `std::unique_ptr`
 
 ## `nullptr` instead of `NULL`

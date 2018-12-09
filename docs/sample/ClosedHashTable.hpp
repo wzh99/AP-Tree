@@ -133,6 +133,7 @@ private:
         } state;
         Node() : state(EMPTY) {}
     };
+    
     std::unique_ptr<Node[]> table;
     uint pSize; // table size in prime
     std::function<ulong(KeyType)> hash;
