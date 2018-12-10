@@ -48,6 +48,8 @@ struct Bound {
     bool Contains(const PointType &pt) const {
         return pt.x >= min.x && pt.y >= min.y && pt.x <= max.x && pt.y <= max.y;
     }
+
+    Type Area() const { return (max.x - min.x) * (max.y - min.y); }
 };
 
 using Boundi = Bound<int>;
