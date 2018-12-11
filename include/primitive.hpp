@@ -11,6 +11,7 @@ struct Point {
     using PointType = Point<Type>;
     Type x = 0, y = 0;
 
+    Point() {}
     template <class OtherType>
     Point(OtherType x, OtherType y) : x(x), y(y) {}
     template <class OtherType>
@@ -35,6 +36,7 @@ struct Bound {
     using BoundType = Bound<Type>;
     PointType min, max;
 
+    Bound() : min(), max() {}
     Bound(const PointType &p1, const PointType &p2) {
         if (p1.x > p2.x) std::swap(p1.x, p2.x);
         if (p1.y > p2.y) std::swap(p1.y, p2.y);
