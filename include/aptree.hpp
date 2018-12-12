@@ -23,8 +23,8 @@ private:
     std::unique_ptr<Node> root; // root node of the whole AP-Tree
     std::vector<std::string> dict; // stores all the vocabulary
     std::unordered_map<std::string, size_t> dictIndex; // stores index of keywords in dictionart
-    size_t nCuts; // partition of f-ary tree node
-    size_t threshold; // maximum number of queries in a query node
+    const size_t nCuts; // partition of f-ary tree node
+    const size_t threshold; // maximum number of queries in a query node
 
     void match(const STObjectNested &obj, size_t start, const Node *node, std::set<QueryNested *> &out) const;
     void build(Node *node, const std::vector<QueryNested *> &subQueries, size_t offset, bool useKeyword, bool useSpatial);

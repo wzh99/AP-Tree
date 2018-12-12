@@ -1,14 +1,15 @@
 #include "../include/aptree.hpp"
 #include <limits>
+#include <numeric>
 
 struct APTree::QueryNested {
     Boundf region;
-    std::set<size_t> dict; // stores indexes of keywords in dictionart for algorithm efficiency
+    std::vector<size_t> dict; // stores indexes of keywords in dictionary for algorithm efficiency
 };
 
 struct APTree::STObjectNested {
     Pointf location;
-    std::set<size_t> dict; // the same as QueryNested
+    std::vector<size_t> dict; // the same as QueryNested
 };
 
 struct APTree::KeywordCut {
@@ -22,13 +23,14 @@ struct APTree::KeywordCut {
 };
 
 struct APTree::KeywordPartition {
-    std::map<KeywordCut, std::vector<QueryNested *>> cuts;
+    std::vector<KeywordCut> cuts;
+    std::map<KeywordCut, std::vector<QueryNested *>> queries;
     std::vector<QueryNested *> dummy; // queries which has less queries than current offset
     float cost;
 };
 
 struct APTree::SpatialPartition {
-    std::vector<float> divX, divY; // start position of X and Y partition, respectively
+    std::vector<float> partX, partY; // start position of X and Y partition, respectively
     std::vector<std::vector<QueryNested *>> cells; // row-major vector of query pointers in each cell
     std::vector<QueryNested *> dummy; // queries which covers the whole region
     float cost;
@@ -51,12 +53,13 @@ struct APTree::Node {
 
     struct KeywordNode {
         size_t offset; // the same with KeywordPartition
-        std::map<KeywordCut, std::unique_ptr<Node>> cuts;
+        std::vector<KeywordCut> cuts; // sorted keyword cuts for binary search
+        std::map<KeywordCut, std::unique_ptr<Node>> children;
     };
     std::unique_ptr<KeywordNode> keyword;
 
     struct SpatialNode {
-        std::vector<float> divX, divY;
+        std::vector<float> partX, partY;
         std::vector<std::unique_ptr<Node>> cells;
     };
     std::unique_ptr<SpatialNode> spatial;
@@ -68,9 +71,9 @@ struct APTree::Node {
     ~Node() {} // explicit destructor for std::unique_ptr
 };
 
-// For verifying selected queries
+// For verifying selected queries, elements in two input vector must be sorted
 template <class Type>
-static bool isSubset(const std::set<Type> &super, const std::set<Type> &sub) {
+static bool isSubset(const std::vector<Type> &super, const std::vector<Type> &sub) {
     auto superIte = super.begin(), subIte = sub.begin();
     while (subIte != sub.end()) {
         if (superIte == super.end()) return false;
@@ -96,10 +99,11 @@ APTree::APTree(const std::vector<std::string> &vocab, const std::vector<Query> &
     // Build nested queries
     std::vector<QueryNested> nestedQueries;
     for (const auto &qry : queries) {
-        std::set<size_t> indexes;
+        std::vector<size_t> indexVec;
         for (const auto &str : qry.keywords)
-            indexes.insert(dictIndex[str]);
-        nestedQueries.push_back({qry.region, std::move(indexes)});
+            indexVec.push_back(dictIndex[str]);
+        std::sort(indexVec.begin(), indexVec.end()); // indexes must be sorted for verifying subset
+        nestedQueries.push_back({qry.region, std::move(indexVec)});
     }
 
     // Build nested query pointer vector
@@ -117,7 +121,7 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
                    bool useSpatial)
 {
     // Build query node
-    if ((!useKeyword && !useKeyword) || subQueries.size() < threshold) {
+    if ((!useKeyword && !useKeyword) || subQueries.size() <= threshold) {
         node->type = Node::QUERY;
         node->query = std::make_unique<Node::QueryNode>();
         std::transform(subQueries.begin(), subQueries.end(), node->query->queries.begin(),
@@ -148,10 +152,11 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
         build(node->dummy.get(), kwPart.dummy, offset + 1, false, useSpatial); 
             // keyword dummy node can no longer be partitioned by keyword again
 
-        for (const auto &pair : kwPart.cuts) {
+        for (const auto &pair : kwPart.queries) {
             auto ptr = new Node();
             ptr->bound = node->bound; // keyword partition doesn't divide space
-            node->keyword->cuts[pair.first] = std::unique_ptr<Node>(ptr);
+            node->keyword->cuts.push_back(pair.first);
+            node->keyword->children[pair.first] = std::unique_ptr<Node>(ptr);
             build(ptr, pair.second, offset + 1, useKeyword, useSpatial);
         }
 
@@ -162,16 +167,62 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
         build(node->dummy.get(), spPart.dummy, offset, useKeyword, false);
             // spatial dummy node can no longer be partitioned by space again
             
-        size_t sizeX = node->spatial->divX.size(), sizeY = node->spatial->divY.size();
-        const auto &divX = node->spatial->divX, &divY = node->spatial->divY; // shorter name for axis partition
+        size_t sizeX = node->spatial->partX.size(), sizeY = node->spatial->partY.size();
+        const auto &partX = node->spatial->partX, &partY = node->spatial->partY; // shorter name for axis partition
         for (size_t j = 0; j < sizeY; j++)
             for (size_t i = 0; i < sizeX; i++) {
                 size_t index = i + j * sizeX;
                 auto ptr = new Node();
-                ptr->bound = {{divX[i], (i == sizeX - 1) ? node->bound.max.x : divX[i + 1]},
-                              {divY[i], (j == sizeY - 1) ? node->bound.max.y : divY[i + 1]}};
+                ptr->bound = {{partX[i], (i == sizeX - 1) ? node->bound.max.x : partX[i + 1]},
+                              {partY[i], (j == sizeY - 1) ? node->bound.max.y : partY[i + 1]}};
                 node->spatial->cells[index] = std::unique_ptr<Node>(ptr);
                 build(ptr, spPart.cells[index], offset, useKeyword, useSpatial);
             }
     }
+}
+
+APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested *> &subQueries, size_t offset)
+{
+    KeywordPartition partition;
+
+    // Get statistics of queries to be partitioned
+    std::map<size_t, std::vector<QueryNested *>> wordStatMap;
+    std::vector<QueryNested *> dummy;
+    for (const auto ptr : subQueries) {
+        // Divide keyword into dummies and descendents
+        if (ptr->dict.size() <= offset)
+            dummy.push_back(ptr); // this query can't be partitioned by current offset
+        else {
+            size_t curWord = ptr->dict[offset];
+            if (wordStatMap.find(curWord) == wordStatMap.end()) // new word to stats
+                wordStatMap[curWord] = std::vector<QueryNested *>(); 
+            wordStatMap[curWord].push_back(ptr); // count word frequency
+        }
+    }
+
+    // Get total frequency of all appearing words
+    size_t totalFreq = 0;
+    for (const auto &pair : wordStatMap) totalFreq += pair.second.size();
+
+    // Convert the word statistic map to vector for random access
+    std::vector<std::pair<size_t, std::vector<QueryNested *>>> wordStatVec;
+    wordStatVec.insert(wordStatVec.begin(), wordStatMap.begin(), wordStatMap.end());
+
+    // Propose a partition which divides words by a fixed offset
+    size_t nPart = std::min(nCuts, wordStatVec.size()); // the number of words to be partitioned may be less than nCuts
+    size_t nWordPerPart = (wordStatVec.size() - 1) / nPart + 1;
+    std::vector<KeywordCut> proposedCuts; 
+    for (size_t i = 0; i < nPart; i++) {
+        size_t cutStart = i * nWordPerPart; // cutStart and cutEnd are indexes in wordStatVec, not actual word indexes
+        size_t cutEnd = std::min(wordStatVec.size(), cutStart + nWordPerPart) - 1;
+        proposedCuts.push_back({wordStatVec[cutStart].first, wordStatVec[cutEnd].first});
+    }
+
+    // Find a partition which evenly partitions keywords by weight through heuristic algorithm
+    for (size_t i = 1; i < nCuts; i++) {
+    }
+
+    // Prepare partition strategy to be returned
+    partition.dummy = std::move(dummy); // dummy vector can no longer be used in this scope
+    return partition;
 }
