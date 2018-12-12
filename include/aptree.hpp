@@ -29,5 +29,5 @@ private:
     void match(const STObjectNested &obj, size_t start, const Node *node, std::set<QueryNested *> &out) const;
     void build(Node *node, const std::vector<QueryNested *> &subQueries, size_t offset, bool useKeyword, bool useSpatial);
     KeywordPartition keywordHeuristic(const std::vector<QueryNested *> &subQueries, size_t offset);
-    SpatialPartition spatialHeuristic(const std::vector<QueryNested *> &subQueries);
+    SpatialPartition spatialHeuristic(const std::vector<QueryNested *> &subQueries, const Boundf &bound);
 };

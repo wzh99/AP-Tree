@@ -37,10 +37,9 @@ struct Bound {
     PointType min, max;
 
     Bound() : min(), max() {}
-    Bound(const PointType &p1, const PointType &p2) {
-        if (p1.x > p2.x) std::swap(p1.x, p2.x);
-        if (p1.y > p2.y) std::swap(p1.y, p2.y);
-        min = p1; max = p2;
+    Bound(const PointType &p1, const PointType &p2) : min(p1), max(p2) {
+        if (min.x > max.x) std::swap(min.x, max.x);
+        if (min.y > max.y) std::swap(min.y, max.y);
     }
     Bound(const BoundType &bd) : min(bd.min), max(bd.max) {}
 

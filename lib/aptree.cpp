@@ -28,7 +28,6 @@ struct APTree::KeywordPartition {
 };
 
 struct APTree::SpatialPartition {
-    Boundf bound;
     std::vector<float> divX, divY; // start position of X and Y partition, respectively
     std::vector<std::vector<QueryNested *>> cells; // row-major vector of query pointers in each cell
     std::vector<QueryNested *> dummy; // queries which covers the whole region
@@ -36,26 +35,35 @@ struct APTree::SpatialPartition {
 };
 
 struct APTree::Node {
-    enum NodeType {
+    enum NodeType { // assigned in callee code
         QUERY, // stores queries
         KEYWORD, // stores keyword cuts
         SPATIAL // stores spatial quadtree cells
     } type;
-    union { // package data in an union for different node types for sake of memory efficiency
-        struct { // query node
-            std::vector<QueryNested> queries;
-        };
-        struct { // keyword node
-            size_t offset; // the same with KeywordPartition
-            std::map<KeywordCut, std::unique_ptr<Node>> cuts;
-        };
-        struct { // spatial node
-            Boundf bound; // the same with SpatialPartition
-            std::vector<float> divX, divY;
-            std::vector<std::unique_ptr<Node>> cells;
-        };
+
+    Boundf bound; // assigned in caller code, for use of spatial partition
+
+    // Package different type of node data in a union will cause problems
+    struct QueryNode {
+        std::vector<QueryNested> queries;
     };
+    std::unique_ptr<QueryNode> query;
+
+    struct KeywordNode {
+        size_t offset; // the same with KeywordPartition
+        std::map<KeywordCut, std::unique_ptr<Node>> cuts;
+    };
+    std::unique_ptr<KeywordNode> keyword;
+
+    struct SpatialNode {
+        std::vector<float> divX, divY;
+        std::vector<std::unique_ptr<Node>> cells;
+    };
+    std::unique_ptr<SpatialNode> spatial;
+
+    // Shared
     std::unique_ptr<Node> dummy = nullptr; // shared by query and spatial node, can be null
+
     Node() {}
     ~Node() {} // explicit destructor for std::unique_ptr
 };
@@ -100,6 +108,8 @@ APTree::APTree(const std::vector<std::string> &vocab, const std::vector<Query> &
                    [] (auto &qry) { return &qry; });
 
     // Start building tree
+    root = std::make_unique<Node>();
+    root->bound = Boundf({0, 0}, {1, 1}); // the whole region is a unit square
     build(root.get(), nstdQryPtrs, 0, true, true); // different from paper, offset is 0-indexed instead of 1-indexed
 }
 
@@ -109,7 +119,8 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
     // Build query node
     if ((!useKeyword && !useKeyword) || subQueries.size() < threshold) {
         node->type = Node::QUERY;
-        std::transform(subQueries.begin(), subQueries.end(), node->queries.begin(),
+        node->query = std::make_unique<Node::QueryNode>();
+        std::transform(subQueries.begin(), subQueries.end(), node->query->queries.begin(),
                        [] (auto ptr) { return *ptr; }); // copy queries into node
         return;
     }
@@ -124,33 +135,42 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
         kwCost = kwPart.cost;
     }
     if (useSpatial) { // try spatial partition
-        spPart = spatialHeuristic(subQueries);
+        spPart = spatialHeuristic(subQueries, node->bound);
         spCost = spPart.cost;
     }
 
     // Build keyword or partition node according to computed costs
     if (kwCost < spCost) { // keyword partition is chosen
         node->type = Node::KEYWORD;
-        node->offset = offset;
+        node->keyword = std::make_unique<Node::KeywordNode>();
         node->dummy = std::make_unique<Node>();
+        node->keyword->offset = offset;
         build(node->dummy.get(), kwPart.dummy, offset + 1, false, useSpatial); 
             // keyword dummy node can no longer be partitioned by keyword again
+
         for (const auto &pair : kwPart.cuts) {
             auto ptr = new Node();
-            node->cuts[pair.first] = std::unique_ptr<Node>(ptr);
+            ptr->bound = node->bound; // keyword partition doesn't divide space
+            node->keyword->cuts[pair.first] = std::unique_ptr<Node>(ptr);
             build(ptr, pair.second, offset + 1, useKeyword, useSpatial);
         }
+
     } else { // spatial partition is chosen
         node->type = Node::SPATIAL;
+        node->spatial = std::make_unique<Node::SpatialNode>();
         node->dummy = std::make_unique<Node>();
         build(node->dummy.get(), spPart.dummy, offset, useKeyword, false);
-            // spatial dummy node can no longer be paritioned by space again
-        size_t sizeX = node->divX.size(), sizeY = node->divY.size();
+            // spatial dummy node can no longer be partitioned by space again
+            
+        size_t sizeX = node->spatial->divX.size(), sizeY = node->spatial->divY.size();
+        const auto &divX = node->spatial->divX, &divY = node->spatial->divY; // shorter name for axis partition
         for (size_t j = 0; j < sizeY; j++)
             for (size_t i = 0; i < sizeX; i++) {
                 size_t index = i + j * sizeX;
                 auto ptr = new Node();
-                node->cells[index] = std::unique_ptr<Node>(ptr);
+                ptr->bound = {{divX[i], (i == sizeX - 1) ? node->bound.max.x : divX[i + 1]},
+                              {divY[i], (j == sizeY - 1) ? node->bound.max.y : divY[i + 1]}};
+                node->spatial->cells[index] = std::unique_ptr<Node>(ptr);
                 build(ptr, spPart.cells[index], offset, useKeyword, useSpatial);
             }
     }

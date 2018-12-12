@@ -16,5 +16,5 @@ struct Query {
 
 class STTree {
 public:
-    virtual std::set<Query> Match(const STObject &obj) const;
+    virtual std::set<Query> Match(const STObject &obj) const = 0;
 };
