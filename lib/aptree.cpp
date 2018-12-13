@@ -26,14 +26,14 @@ struct APTree::KeywordPartition {
     std::vector<KeywordCut> cuts;
     std::map<KeywordCut, std::vector<QueryNested *>> queries;
     std::vector<QueryNested *> dummy; // queries which has less queries than current offset
-    float cost;
+    float cost = 0;
 };
 
 struct APTree::SpatialPartition {
     std::vector<float> partX, partY; // start position of X and Y partition, respectively
     std::vector<std::vector<QueryNested *>> cells; // row-major vector of query pointers in each cell
     std::vector<QueryNested *> dummy; // queries which covers the whole region
-    float cost;
+    float cost = 0;
 };
 
 struct APTree::Node {
@@ -49,20 +49,22 @@ struct APTree::Node {
     struct QueryNode {
         std::vector<QueryNested> queries;
     };
-    std::unique_ptr<QueryNode> query;
+    std::unique_ptr<QueryNode> query = nullptr;
 
     struct KeywordNode {
         size_t offset; // the same with KeywordPartition
         std::vector<KeywordCut> cuts; // sorted keyword cuts for binary search
         std::map<KeywordCut, std::unique_ptr<Node>> children;
+
+        KeywordCut Search(size_t word) const;
     };
-    std::unique_ptr<KeywordNode> keyword;
+    std::unique_ptr<KeywordNode> keyword = nullptr;
 
     struct SpatialNode {
         std::vector<float> partX, partY;
         std::vector<std::unique_ptr<Node>> cells;
     };
-    std::unique_ptr<SpatialNode> spatial;
+    std::unique_ptr<SpatialNode> spatial = nullptr;
 
     // Shared
     std::unique_ptr<Node> dummy = nullptr; // shared by query and spatial node, can be null
@@ -121,7 +123,7 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
                    bool useSpatial)
 {
     // Build query node
-    if ((!useKeyword && !useKeyword) || subQueries.size() <= threshold) {
+    if ((!useKeyword && !useKeyword) || subQueries.size() < threshold) {
         node->type = Node::QUERY;
         node->query = std::make_unique<Node::QueryNode>();
         std::transform(subQueries.begin(), subQueries.end(), node->query->queries.begin(),
@@ -185,44 +187,96 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
 {
     KeywordPartition partition;
 
-    // Get statistics of queries to be partitioned
-    std::map<size_t, std::vector<QueryNested *>> wordStatMap;
+    // Get statistics of query keywords to be partitioned
+    std::map<size_t, std::vector<QueryNested *>> offsetWordQryMap; // queries related to keywords of current offset
+    std::map<size_t, size_t> allWordFreqMap; // frequencies related to keywords of all offsets
     std::vector<QueryNested *> dummy;
     for (const auto ptr : subQueries) {
+        // Count keyword frequencies in all query offsets
+        for (auto word : ptr->dict)
+            if (allWordFreqMap.find(word) == allWordFreqMap.end())
+                allWordFreqMap[word] = 1;
+            else
+                allWordFreqMap[word]++;
+
         // Divide keyword into dummies and descendents
         if (ptr->dict.size() <= offset)
             dummy.push_back(ptr); // this query can't be partitioned by current offset
         else {
             size_t curWord = ptr->dict[offset];
-            if (wordStatMap.find(curWord) == wordStatMap.end()) // new word to stats
-                wordStatMap[curWord] = std::vector<QueryNested *>(); 
-            wordStatMap[curWord].push_back(ptr); // count word frequency
+            if (offsetWordQryMap.find(curWord) == offsetWordQryMap.end()) // new word to offset keyword map
+                offsetWordQryMap[curWord] = std::vector<QueryNested *>(); 
+            offsetWordQryMap[curWord].push_back(ptr); // count word frequency
         }
     }
 
     // Get total frequency of all appearing words
     size_t totalFreq = 0;
-    for (const auto &pair : wordStatMap) totalFreq += pair.second.size();
+    for (const auto &pair : allWordFreqMap) totalFreq += pair.second;
 
     // Convert the word statistic map to vector for random access
-    std::vector<std::pair<size_t, std::vector<QueryNested *>>> wordStatVec;
-    wordStatVec.insert(wordStatVec.begin(), wordStatMap.begin(), wordStatMap.end());
+    std::vector<std::pair<size_t, std::vector<QueryNested *>>> offsetWordQryVec;
+    offsetWordQryVec.insert(offsetWordQryVec.begin(), offsetWordQryMap.begin(), offsetWordQryMap.end());
 
     // Propose a partition which divides words by a fixed offset
-    size_t nPart = std::min(nCuts, wordStatVec.size()); // the number of words to be partitioned may be less than nCuts
-    size_t nWordPerPart = (wordStatVec.size() - 1) / nPart + 1;
-    std::vector<KeywordCut> proposedCuts; 
+    size_t nPart = std::min(nCuts, offsetWordQryVec.size()); // number of words to be partitioned may be less than nCuts
+    size_t nWordPerPart = (offsetWordQryVec.size() - 1) / nPart + 1;
+    std::vector<KeywordCut> propCuts; // proposed cuts
+    propCuts.reserve(nPart);
     for (size_t i = 0; i < nPart; i++) {
-        size_t cutStart = i * nWordPerPart; // cutStart and cutEnd are indexes in wordStatVec, not actual word indexes
-        size_t cutEnd = std::min(wordStatVec.size(), cutStart + nWordPerPart) - 1;
-        proposedCuts.push_back({wordStatVec[cutStart].first, wordStatVec[cutEnd].first});
+        size_t cutStart = i * nWordPerPart; // cutStart and cutEnd are indexes in offsetWordQryVec, not actual word indexes
+        size_t cutEnd = std::min(offsetWordQryVec.size(), cutStart + nWordPerPart) - 1;
+        propCuts.push_back({offsetWordQryVec[cutStart].first, offsetWordQryVec[cutEnd].first});
     }
 
+    // Defines cost computing function for each keyword cut
+    auto computeCutCost = [&] (const KeywordCut &cut) {
+        float weight = 0; // number of queries associated to current cut(bucket)
+        float probSum = 0; // sum of probabilities of all words in current cut
+        for (size_t word = cut.start; word <= cut.end; word++) {
+            if (offsetWordQryMap.find(word) == offsetWordQryMap.end()) // word not found
+                continue;
+            weight += offsetWordQryMap[word].size();
+            probSum += float(allWordFreqMap[word]) / totalFreq; // use local query distribution to estimate the whole one
+        }
+        return weight * probSum;
+    };
+
     // Find a partition which evenly partitions keywords by weight through heuristic algorithm
-    for (size_t i = 1; i < nCuts; i++) {
+    for (size_t i = 1; i < nPart; i++) {
+        // Compute current cost of proposed cuts
+        // Only account for two involved cuts, since other cuts has no change on total partition cost
+        float curCost = computeCutCost(propCuts[i - 1]) + computeCutCost(propCuts[i]);
+
+        // Try all possible cuts
+        size_t leftCutStart = propCuts[i - 1].start, rightCutEnd = propCuts[i].end;
+        for (size_t leftCutEnd = propCuts[i - 1].start; leftCutEnd != propCuts[i].end; leftCutEnd++) {
+            if (offsetWordQryMap.find(leftCutEnd) == offsetWordQryMap.end()) // proposed left cut ending word not found
+                continue;
+            size_t rightCutStart = leftCutEnd + 1;
+            while (offsetWordQryMap.find(rightCutStart) == offsetWordQryMap.end() && rightCutStart < rightCutEnd)
+                rightCutStart++; // set start of right cut to valid index for efficiency
+            float propCost = computeCutCost({leftCutStart, leftCutEnd}) + computeCutCost({rightCutStart, rightCutEnd});
+            if (propCost < curCost) { // better cut
+                curCost = propCost;
+                propCuts[i - 1].end = leftCutEnd; // update proposed cuts
+                propCuts[i].start = rightCutStart;
+            }
+        }
     }
 
     // Prepare partition strategy to be returned
-    partition.dummy = std::move(dummy); // dummy vector can no longer be used in this scope
+    partition.cost = 0;
+    for (const auto &cut : propCuts) partition.cost += computeCutCost(cut);
+    partition.cuts = std::move(propCuts);
+    partition.dummy = std::move(dummy); 
+    for (const auto &cut : partition.cuts) {
+        partition.queries[cut] = std::vector<QueryNested *>();
+        auto &curCutQryVec = partition.queries[cut];
+        for (size_t word = cut.start; word <= cut.end; word++) { 
+            if (offsetWordQryMap.find(word) == offsetWordQryMap.end()) continue;
+            curCutQryVec.insert(curCutQryVec.end(), offsetWordQryMap[word].begin(), offsetWordQryMap[word].end());
+        }
+    }
     return partition;
 }
