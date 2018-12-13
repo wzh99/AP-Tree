@@ -267,15 +267,16 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
 
     // Prepare partition strategy to be returned
     partition.cost = 0;
-    for (const auto &cut : propCuts) partition.cost += computeCutCost(cut);
     partition.cuts = std::move(propCuts);
     partition.dummy = std::move(dummy); 
     for (const auto &cut : partition.cuts) {
+        partition.cost += computeCutCost(cut);
         partition.queries[cut] = std::vector<QueryNested *>();
-        auto &curCutQryVec = partition.queries[cut];
+        auto &cutQryVec = partition.queries[cut];
         for (size_t word = cut.start; word <= cut.end; word++) { 
             if (offsetWordQryMap.find(word) == offsetWordQryMap.end()) continue;
-            curCutQryVec.insert(curCutQryVec.end(), offsetWordQryMap[word].begin(), offsetWordQryMap[word].end());
+            auto &wordQryVec = offsetWordQryMap[word];
+            cutQryVec.insert(cutQryVec.end(), wordQryVec.begin(), wordQryVec.end());
         }
     }
     return partition;

@@ -1,16 +1,14 @@
 #pragma once
 
-
 #include "sttree.hpp"
 #include <map>
 #include <memory>
 #include <unordered_map>
-#include <vector>
 
 class APTree : public STTree {
 public:
     APTree(const std::vector<std::string> &vocab, const std::vector<Query> &queries, size_t nCuts, size_t threshold);
-    std::set<Query> Match(const STObject &obj) const override;
+    std::vector<Query> Match(const STObject &obj) const override;
 
 private:
     struct QueryNested;

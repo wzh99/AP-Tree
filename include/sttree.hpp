@@ -3,6 +3,7 @@
 #include "primitive.hpp"
 #include <set>
 #include <string>
+#include <vector>
 
 struct STObject {
     Pointf location;
@@ -16,5 +17,5 @@ struct Query {
 
 class STTree {
 public:
-    virtual std::set<Query> Match(const STObject &obj) const = 0;
+    virtual std::vector<Query> Match(const STObject &obj) const = 0;
 };
