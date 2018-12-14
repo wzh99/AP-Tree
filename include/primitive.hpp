@@ -27,8 +27,8 @@ struct Point {
 };
 
 using Pointi = Point<int>;
-using Pointu = Point<uint>;
-using Pointf = Point<float>;
+using Pointu = Point<size_t>;
+using Pointf = Point<double>;
 
 template <class Type>
 struct Bound {
@@ -50,9 +50,17 @@ struct Bound {
         return pt.x >= min.x && pt.y >= min.y && pt.x <= max.x && pt.y <= max.y;
     }
 
+    bool Contains(const BoundType &bd) const {
+        return bd.min.x >= min.x && bd.min.y >= min.y && bd.max.x <= max.x && bd.max.y <= max.y;
+    }
+
+    bool Overlaps(const BoundType &bd) const {
+        return !(bd.min.x > max.x || bd.min.y > max.y || bd.max.x < min.x || bd.max.y < min.y);
+    }
+
     Type Area() const { return (max.x - min.x) * (max.y - min.y); }
 };
 
 using Boundi = Bound<int>;
-using Boundu = Bound<uint>;
-using Boundf = Bound<float>;
+using Boundu = Bound<size_t>;
+using Boundf = Bound<double>;
