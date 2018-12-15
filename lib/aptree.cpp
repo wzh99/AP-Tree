@@ -516,6 +516,7 @@ std::vector<Query> APTree::Match(const STObject &obj) const {
         Query oQry{qry.region, std::set<std::string>()};
         for (const size_t i : qry.keywords) 
             oQry.keywords.insert(dict[i]);
+        output.push_back(std::move(oQry));
     }
     return output;
 }
