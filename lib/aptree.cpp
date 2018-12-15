@@ -69,12 +69,12 @@ static std::vector<Type> commonElements(const std::vector<Type> &v1, const std::
 
 struct APTree::QueryNested {
     Boundf region;
-    std::vector<size_t> dict; // stores indexes of keywords in dictionary for algorithm efficiency
+    std::vector<size_t> keywords; // stores indexes of keywords in dictionary for algorithm efficiency
 };
 
 struct APTree::STObjectNested {
     Pointf location;
-    std::vector<size_t> dict; // the same as QueryNested
+    std::vector<size_t> keywords; // the same as QueryNested
 };
 
 struct APTree::KeywordCut {
@@ -245,17 +245,17 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
     std::vector<QueryNested *> dummy;
     for (const auto ptr : subQueries) {
         // Count keyword frequencies in all query offsets
-        for (auto word : ptr->dict)
+        for (auto word : ptr->keywords)
             if (allWordFreqMap.find(word) == allWordFreqMap.end())
                 allWordFreqMap[word] = 1;
             else
                 allWordFreqMap[word]++;
 
         // Divide keyword into dummies and descendents
-        if (ptr->dict.size() <= offset)
+        if (ptr->keywords.size() <= offset)
             dummy.push_back(ptr); // this query can't be partitioned by current offset
         else {
-            size_t curWord = ptr->dict[offset];
+            size_t curWord = ptr->keywords[offset];
             if (offsetWordQryMap.find(curWord) == offsetWordQryMap.end()) // new word to offset keyword map
                 offsetWordQryMap[curWord] = std::vector<QueryNested *>(); 
             offsetWordQryMap[curWord].push_back(ptr); // count word frequency
@@ -484,10 +484,38 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
             auto qryCell = commonElements(qryVecX, qryVecY);
             size_t weight = qryCell.size();
             double prob = (partition.partX[i + 1] - partition.partX[i]) * (partition.partY[i + 1] - partition.partY[i]);
+            prob /= bound.Area();
             partition.cost += weight * prob;
             partition.cells[index] = std::move(qryCell);
         }
     }
 
     return partition;
+}
+
+std::vector<Query> APTree::Match(const STObject &obj) const {
+    // Convert input spatial-textual object to nested one
+    STObjectNested stObjN{obj.location, std::vector<size_t>()};
+    for (const auto &kw : obj.keywords)
+        stObjN.keywords.push_back(dictIndex.find(kw)->second);
+
+    // Start match recursion
+    std::set<QueryNested> queries;
+    match(stObjN, 0, root.get(), queries);
+
+    // Prune unqualified queries
+    std::vector<QueryNested> candQry;
+    candQry.insert(candQry.begin(), queries.begin(), queries.end());
+    std::remove_if(candQry.begin(), candQry.end(),
+                   [&](const QueryNested &qry) { return !(qry.region.Contains(obj.location) 
+                                                          && isSubset(stObjN.keywords, qry.keywords)); });
+
+    // Convert nested queries to output struct
+    std::vector<Query> output;
+    for (const auto &qry : candQry) {
+        Query oQry{qry.region, std::set<std::string>()};
+        for (const size_t i : qry.keywords) 
+            oQry.keywords.insert(dict[i]);
+    }
+    return output;
 }
