@@ -47,15 +47,15 @@ struct Bound {
     bool operator != (const BoundType &bd) const { return !(bd == *this); }
 
     bool Contains(const PointType &pt) const {
-        return pt.x >= min.x && pt.y >= min.y && pt.x <= max.x && pt.y <= max.y;
+        return pt.x > min.x && pt.y > min.y && pt.x < max.x && pt.y < max.y;
     }
 
     bool Contains(const BoundType &bd) const {
-        return bd.min.x >= min.x && bd.min.y >= min.y && bd.max.x <= max.x && bd.max.y <= max.y;
+        return bd.min.x > min.x && bd.min.y > min.y && bd.max.x < max.x && bd.max.y < max.y;
     }
 
     bool Overlaps(const BoundType &bd) const {
-        return !(bd.min.x > max.x || bd.min.y > max.y || bd.max.x < min.x || bd.max.y < min.y);
+        return !(bd.min.x >= max.x || bd.min.y >= max.y || bd.max.x <= min.x || bd.max.y <= min.y);
     }
 
     Type Area() const { return (max.x - min.x) * (max.y - min.y); }

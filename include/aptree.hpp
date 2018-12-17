@@ -8,6 +8,7 @@
 class APTree : public STTree {
 public:
     APTree(const std::vector<std::string> &vocab, const std::vector<Query> &queries, size_t nCuts, size_t threshold);
+    ~APTree();
     std::vector<Query> Match(const STObject &obj) const override;
 
 private:
@@ -18,7 +19,7 @@ private:
     struct KeywordPartition;
     struct SpatialPartition;
 
-    std::unique_ptr<Node> root; // root node of the whole AP-Tree
+    Node *root; // root node of the whole AP-Tree
     std::vector<std::string> dict; // stores all the vocabulary
     std::unordered_map<std::string, size_t> dictIndex; // stores index of keywords in dictionart
     const size_t nCuts; // partition of f-ary tree node

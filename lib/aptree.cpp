@@ -1,7 +1,10 @@
 #include "../include/aptree.hpp"
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <numeric>
+
+#define COUT(expr) std::cout << expr << std::endl;
 
 static constexpr auto INDEX_NOT_FOUND = std::numeric_limits<size_t>::max();
 
@@ -49,7 +52,7 @@ static bool isSubset(const std::vector<Type> &super, const std::vector<Type> &su
 
 // For selecting common queries from two ranges in corresponding axis
 template <class Type>
-static std::vector<Type> commonElements(const std::vector<Type> &v1, const std::vector<Type> &v2) {
+static std::vector<Type> commonElements(const std::set<Type> &v1, const std::set<Type> &v2) {
     std::vector<Type> common;
     if (v1.size() == 0 || v2.size() == 0) return common;
     auto ite1 = v1.begin(), ite2 = v2.begin();
@@ -70,6 +73,8 @@ static std::vector<Type> commonElements(const std::vector<Type> &v1, const std::
 struct APTree::QueryNested {
     Boundf region;
     std::vector<size_t> keywords; // stores indexes of keywords in dictionary for algorithm efficiency
+    bool operator < (const  QueryNested &qry) const { return region.Area() < qry.region.Area(); }
+    bool operator == (const QueryNested &qry) const { return region == qry.region && keywords == qry.keywords; }
 };
 
 struct APTree::STObjectNested {
@@ -97,7 +102,7 @@ struct APTree::KeywordPartition {
 struct APTree::SpatialPartition {
     size_t nPartX, nPartY;
     std::vector<double> partX, partY; // start position of X and Y partition, respectively
-    std::vector<std::vector<QueryNested *>> cells; // column-major vector of query pointers in each cell
+    std::unique_ptr<std::vector<QueryNested *>[]> cells; // column-major vector of query pointers in each cell
     std::vector<QueryNested *> dummy; // queries which covers the whole region
     double cost = 0;
 };
@@ -122,6 +127,8 @@ struct APTree::Node {
         std::vector<KeywordCut> cuts; // sorted keyword cuts for binary search
         std::map<KeywordCut, std::unique_ptr<Node>> children;
 
+        // Find corresponding cut based on object keywords
+        // The algorithm is similar to rangeSearch(), but dealing with keyword cut instead of ranges
         KeywordCut Search(size_t word) const;
     };
     std::unique_ptr<KeywordNode> keyword = nullptr;
@@ -161,14 +168,17 @@ APTree::APTree(const std::vector<std::string> &vocab, const std::vector<Query> &
 
     // Build nested query pointer vector
     std::vector<QueryNested *> nstdQryPtrs;
-    std::transform(nestedQueries.begin(), nestedQueries.end(), nstdQryPtrs.begin(),
-                   [] (auto &qry) { return &qry; });
+    auto qryArrPtr = nestedQueries.data();
+    for (size_t i = 0; i < nestedQueries.size(); i++) 
+        nstdQryPtrs.push_back(qryArrPtr + i);
 
     // Start building tree
-    root = std::make_unique<Node>();
+    root = new Node();
     root->bound = Boundf({0, 0}, {1, 1}); // the whole region is a unit square
-    build(root.get(), nstdQryPtrs, 0, true, true); // different from paper, offset is 0-indexed instead of 1-indexed
+    build(root, nstdQryPtrs, 0, true, true); // different from paper, offset is 0-indexed instead of 1-indexed
 }
+
+APTree::~APTree() { delete root; }
 
 void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, size_t offset, bool useKeyword,
                    bool useSpatial)
@@ -177,8 +187,8 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
     if ((!useKeyword && !useKeyword) || subQueries.size() < threshold) {
         node->type = Node::QUERY;
         node->query = std::make_unique<Node::QueryNode>();
-        std::transform(subQueries.begin(), subQueries.end(), node->query->queries.begin(),
-                       [] (auto ptr) { return *ptr; }); // copy queries into node
+        for (const auto ptr : subQueries)
+            node->query->queries.push_back(*ptr); // copy queries into node
         return;
     }
 
@@ -362,7 +372,7 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         bndStatVec.insert(bndStatVec.end(), bndStatSet.begin(), bndStatSet.end());
 
         // Get statistics of queries related to each bound
-        for (size_t i = 0; i < bndStatVec.size() - 1; i++) {
+        for (size_t i = 0; i < bndStatVec.size(); i++) {
             auto &qryVec = bndQryMapX[bndStatVec[i]] = std::vector<QueryNested *>();
             if (i == bndStatSet.size() - 1) continue;
             Boundf curBnd = {{bndStatVec[i], bound.min.y}, {bndStatVec[i + 1], bound.max.y}};
@@ -377,8 +387,7 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
 
         // Propose a partition which divides queries by a fixed bound number offset
         size_t nBndPerPart = (bndStatVec.size() - 1) / nPartX;
-        std::vector<size_t> partIdx; // indexes in bound statistics vector
-        partIdx.reserve(nPartX + 1);
+        std::unique_ptr<size_t[]> partIdx(new size_t[nPartX + 1]); // indexes in bound statistics vector
         for (size_t i = 0; i < nPartX; i++) 
             partIdx[i] = i * nBndPerPart;
         partIdx[nPartX] = bndStatVec.size() - 1;
@@ -408,8 +417,8 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         }
 
         // Convert index into real number partitions
-        std::transform(partIdx.begin(), partIdx.end(),
-                       partition.partX.begin(), [&](size_t i) { return bndStatVec[i]; });
+        for (size_t i = 0; i <= nPartX; i++)
+            partition.partX.push_back(bndStatVec[partIdx[i]]);
     }
     { // Y axis
         // Get statistics of all query bounds
@@ -423,7 +432,7 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         bndStatVec.insert(bndStatVec.end(), bndStatSet.begin(), bndStatSet.end());
 
         // Get statistics of queries related to each bound
-        for (size_t i = 0; i < bndStatVec.size() - 1; i++) {
+        for (size_t i = 0; i < bndStatVec.size(); i++) {
             auto &qryVec = bndQryMapY[bndStatVec[i]] = std::vector<QueryNested *>();
             if (i == bndStatSet.size() - 1) continue;
             Boundf curBnd = {{bound.min.x, bndStatVec[i]}, {bound.max.x, bndStatVec[i + 1]}};
@@ -438,8 +447,7 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
 
         // Propose a partition which divides queries by a fixed bound number offset
         size_t nBndPerPart = (bndStatVec.size() - 1) / nPartX;
-        std::vector<size_t> partIdx; // indexes in bound statistics vector
-        partIdx.reserve(nPartY + 1);
+        std::unique_ptr<size_t[]> partIdx(new size_t[nPartX + 1]);
         for (size_t i = 0; i < nPartY; i++) 
             partIdx[i] = i * nBndPerPart;
         partIdx[nPartY] = bndStatVec.size() - 1;
@@ -453,7 +461,7 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
             return weight * length / (bound.max.y - bound.min.y);
         };
 
-        // Find a partition which evenly partitions X axis by weight through heuristic algorithm
+        // Find a partition which evenly partitions Y axis by weight through heuristic algorithm
         for (size_t i = 1; i < nPartY; i++) {
             // Compute current cost of proposed partition
             double curCost = computeCost(partIdx[i - 1], partIdx[i]) + computeCost(partIdx[i], partIdx[i + 1]);
@@ -469,24 +477,42 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         }
 
         // Convert index into real number partitions
-        std::transform(partIdx.begin(), partIdx.end(),
-                       partition.partY.begin(), [&](size_t i) { return bndStatVec[i]; });
+        for (size_t i = 0; i <= nPartY; i++)
+            partition.partY.push_back(bndStatVec[partIdx[i]]);
     }
 
     // Generate cells and compute final cost
     partition.cost = 0;
+    partition.cells = std::unique_ptr<std::vector<QueryNested *>[]>(new std::vector<QueryNested *>[nPartX * nPartY]);
     for (size_t i = 0; i < nPartX; i++) {
         for (size_t j = 0; j < nPartY; j++) {
             size_t index = j + i * nPartY;
-            auto &qryVecX = bndQryMapX[partition.partX[i]], &qryVecY = bndQryMapY[partition.partY[j]];
-            std::sort(qryVecX.begin(), qryVecX.end());
-            std::sort(qryVecY.begin(), qryVecY.end());
-            auto qryCell = commonElements(qryVecX, qryVecY);
-            size_t weight = qryCell.size();
-            double prob = (partition.partX[i + 1] - partition.partX[i]) * (partition.partY[i + 1] - partition.partY[i]);
-            prob /= bound.Area();
-            partition.cost += weight * prob;
-            partition.cells[index] = std::move(qryCell);
+            // Pick up queries between bounds
+            double thisBndX = partition.partX[i], nextBndX = partition.partX[i + 1];
+            auto bndIteX = bndQryMapX.find(thisBndX);
+            std::set<QueryNested *> qrySetX;
+            while (bndIteX->first != nextBndX) {
+                qrySetX.insert(bndIteX->second.begin(), bndIteX->second.end());
+                bndIteX++;
+            }
+            double thisBndY = partition.partY[j], nextBndY = partition.partY[j + 1];
+            auto bndIteY = bndQryMapY.find(thisBndY);
+            std::set<QueryNested *> qrySetY;
+            while (bndIteY->first != nextBndY) {
+                qrySetY.insert(bndIteY->second.begin(), bndIteY->second.end());
+                bndIteY++;
+            }
+            // Find common queries of two axes
+            auto qryCell = commonElements(qrySetX, qrySetY);
+            partition.cells[index] = std::vector<QueryNested *>();
+            if (qryCell.size() > 0) {
+                size_t weight = qryCell.size();
+                double prob = (partition.partX[i + 1] - partition.partX[i]) * 
+                              (partition.partY[i + 1] - partition.partY[i]);
+                prob /= bound.Area();
+                partition.cost += weight * prob;
+                partition.cells[index] = std::move(qryCell);
+            }
         }
     }
 
@@ -501,22 +527,29 @@ std::vector<Query> APTree::Match(const STObject &obj) const {
 
     // Start match recursion
     std::set<QueryNested> queries;
-    match(stObjN, 0, root.get(), queries);
-
-    // Prune unqualified queries
-    std::vector<QueryNested> candQry;
-    candQry.insert(candQry.begin(), queries.begin(), queries.end());
-    std::remove_if(candQry.begin(), candQry.end(),
-                   [&](const QueryNested &qry) { return !(qry.region.Contains(obj.location) 
-                                                          && isSubset(stObjN.keywords, qry.keywords)); });
+    match(stObjN, 0, root, queries);
 
     // Convert nested queries to output struct
     std::vector<Query> output;
-    for (const auto &qry : candQry) {
+    for (const auto &qry : queries) {
         Query oQry{qry.region, std::set<std::string>()};
         for (const size_t i : qry.keywords) 
             oQry.keywords.insert(dict[i]);
         output.push_back(std::move(oQry));
     }
     return output;
+}
+
+void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, std::set<QueryNested> &out) const
+{
+    if (node->type == Node::QUERY) {
+        // Verify queries in N and insert the matched ones to output set
+        for (const auto &qry : node->query->queries)
+            if (qry.region.Contains(obj.location) && isSubset(obj.keywords, qry.keywords))
+                out.insert(qry);
+    } else if (node->type == Node::KEYWORD) {
+        for (size_t i = offset; i < obj.keywords.size(); i++) {
+
+        }
+    }
 }

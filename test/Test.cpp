@@ -1,9 +1,10 @@
 #include <iostream>
 #include <ctime>
-#include "../include/aptree.hpp";
+#include "../include/aptree.hpp"
 
 using namespace std;
 Query generateQuery(const string k1, const string k2);
+STObject generateObject(const string s1, const string s2, const string s3);
 
 int main() 
 {
@@ -39,8 +40,11 @@ int main()
 	vocab.push_back("Wildlife");
 
 	STObject object1, object2;
-	object1 = genereteObject("Sal", "Agua", "Wildlife");
-	object2 = genereteObject("Bourder", "Draw", "Park");
+	object1 = generateObject("Sal", "Agua", "Wildlife");
+	object2 = generateObject("Bourder", "Draw", "Park");
+
+	APTree aptree(vocab, queries, 4, 4);
+	return 0;
 }
 
 Query generateQuery(const string k1, const string k2){
@@ -61,7 +65,7 @@ Query generateQuery(const string k1, const string k2){
 	return obj;
 }
 
-STObject genereteObject(const string s1, const string s2, const string s3) {
+STObject generateObject(const string s1, const string s2, const string s3) {
 	STObject obj;
 	obj.keywords.insert(s1);
 	obj.keywords.insert(s2);
