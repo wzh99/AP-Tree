@@ -84,7 +84,9 @@ struct APTree::STObjectNested {
 
 struct APTree::KeywordCut {
     size_t start, end; // both ends included
+    KeywordCut() {}
     KeywordCut(size_t start, size_t end) : start(start), end(end) {}
+    bool isInCut(size_t index) const { return index >= start && index <= end; }
     bool operator == (const KeywordCut &other) const { return start == other.start && end == other.end; }
     bool operator < (const KeywordCut &other) const { 
         if (start != other.start) return start < other.start; 
@@ -128,8 +130,33 @@ struct APTree::Node {
         std::map<KeywordCut, std::unique_ptr<Node>> children;
 
         // Find corresponding cut based on object keywords
-        // The algorithm is similar to rangeSearch(), but dealing with keyword cut instead of ranges
-        KeywordCut Search(size_t word) const;
+        // The algorithm is similar to rangeSearch(), but deals with keyword cuts instead of ranges
+        KeywordCut Search(size_t target) const {
+            size_t start = 0, end = cuts.size() - 1, mid = (start + end) / 2;
+            if (target < cuts[start].start || target > cuts[end].end)
+                return {INDEX_NOT_FOUND, INDEX_NOT_FOUND}; // can't be in any cut
+            while (true) {
+                if (end - start == 1) {
+                    if (cuts[start].isInCut(target))
+                        return cuts[start];
+                    else 
+                        return {INDEX_NOT_FOUND, INDEX_NOT_FOUND}; // between gap of two cuts
+                }
+                mid = (start + end) / 2;
+                auto startCut = cuts[start], midCut = cuts[mid], endCut = cuts[end];
+                if (startCut.isInCut(target)) return startCut;
+                if (midCut.isInCut(target)) return midCut;
+                if (endCut.isInCut(target)) return endCut;
+                if (target >= startCut.start && target < midCut.start) {
+                    end = mid;
+                    continue;
+                } else if (target >= midCut.start && target < endCut.start) {
+                    start = mid;
+                    continue;
+                }
+            }
+            return {INDEX_NOT_FOUND, INDEX_NOT_FOUND};
+        }
     };
     std::unique_ptr<KeywordNode> keyword = nullptr;
 
@@ -138,7 +165,11 @@ struct APTree::Node {
         std::vector<double> partX, partY; // has one more element than nPart
         std::vector<std::unique_ptr<Node>> cells; // 1D vector of m * n cells [0 ... m-1][0 ... n-1]
 
-        Pointu GetCellIndex(const Pointf &pt) const;
+        Pointu GetCellIndex(const Pointf &pt) const {
+            size_t ix = rangeSearch(partX, pt.x);
+            size_t iy = rangeSearch(partY, pt.y);
+            return {ix, iy};
+        }
     };
     std::unique_ptr<SpatialNode> spatial = nullptr;
 
@@ -543,13 +574,35 @@ std::vector<Query> APTree::Match(const STObject &obj) const {
 void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, std::set<QueryNested> &out) const
 {
     if (node->type == Node::QUERY) {
-        // Verify queries in N and insert the matched ones to output set
+        // Verify queries in query storage and insert the matched ones to output set
         for (const auto &qry : node->query->queries)
             if (qry.region.Contains(obj.location) && isSubset(obj.keywords, qry.keywords))
                 out.insert(qry);
-    } else if (node->type == Node::KEYWORD) {
-        for (size_t i = offset; i < obj.keywords.size(); i++) {
 
+    } else if (node->type == Node::KEYWORD) {
+        // Record if certain cut has been visited before
+        std::map<KeywordCut, bool> visited;
+        for (const auto &cut : node->keyword->cuts)
+            visited[cut] = false;
+        // Find the corresponding cut based on ith word in object keywords
+        for (size_t i = offset; i < obj.keywords.size(); i++) {
+            auto cut = node->keyword->Search(obj.keywords[i]);
+            if (cut.start != INDEX_NOT_FOUND && !visited[cut]) {
+                visited[cut] = true;
+                match(obj, i + 1, node->keyword->children[cut].get(), out);
+            }
         }
+        // Search in dummy cut if it exists
+        if (node->dummy.get()) 
+            match(obj, offset, node->dummy.get(), out);
+
+    } else if (node->type == Node::SPATIAL) {
+        // Find the cell which covers the location of object
+        auto cellIdx = node->spatial->GetCellIndex(obj.location);
+        size_t vecIdx = cellIdx.y + cellIdx.x * node->spatial->nPartY;
+        match(obj, offset, node->spatial->cells[vecIdx].get(), out);
+        // Search in dummy cell if it exists
+        if (node->dummy.get())
+            match(obj, offset, node->dummy.get(), out);
     }
 }

@@ -11,10 +11,10 @@ int main()
 	vector<Query> queries;
 
 	srand(time(NULL));
-	queries.push_back(generateQuery("Bruceville", "Cemetery	"));
+	queries.push_back(generateQuery("Bruceville", "Cemetery"));
 	queries.push_back(generateQuery("Boulder", "Agua"));
 	queries.push_back(generateQuery("Sal", "Creek"));
-	queries.push_back(generateQuery("Agua", "Sal"));
+	queries.push_back(generateQuery("Aguaje", "Sal"));
 	queries.push_back(generateQuery("Wash", "Aguaje"));
 	queries.push_back(generateQuery("Draw", "Valley"));
 	queries.push_back(generateQuery("Arlington", "State"));
@@ -41,9 +41,11 @@ int main()
 
 	STObject object1, object2;
 	object1 = generateObject("Sal", "Agua", "Wildlife");
-	object2 = generateObject("Bourder", "Draw", "Park");
+	object2 = generateObject("Boulder", "Draw", "Park");
 
 	APTree aptree(vocab, queries, 4, 4);
+	aptree.Match(object1);
+	aptree.Match(object2);
 	return 0;
 }
 
@@ -52,7 +54,7 @@ Query generateQuery(const string k1, const string k2){
 	obj.keywords.insert(k1);
 	obj.keywords.insert(k2);
 
-	double x1, x2, y1, y2, x11, x22, y11, y22;
+	double x1, x2, y1, y2;
 	x1 = (double)rand() / (double)RAND_MAX;
 	x2 = (double)rand() / (double)RAND_MAX;
 	y1 = (double)rand() / (double)RAND_MAX;
