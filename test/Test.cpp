@@ -40,7 +40,7 @@ int main()
 	vocab.push_back("Wildlife");
 
 	STObject object1, object2;
-	object1 = generateObject("Sal", "Agua", "Wildlife");
+	object1 = generateObject("Sal", "Creek", "Wildlife");
 	object2 = generateObject("Boulder", "Draw", "Park");
 
 	APTree aptree(vocab, queries, 4, 4);
