@@ -59,8 +59,8 @@ Query generateQuery(const string k1, const string k2){
 	x2 = (double)rand() / (double)RAND_MAX;
 	y1 = (double)rand() / (double)RAND_MAX;
 	y2 = (double)rand() / (double)RAND_MAX;
-	obj.region.min.x = (x1 < x2) ? x1 : x2;//This may not be able to generate uniform distribution.
-	obj.region.min.y = (y1 < y2) ? y1 : y2;//But I think uniform distribution is not necessary so I keep it :)
+	obj.region.min.x = (x1 < x2) ? x1 : x2;
+	obj.region.min.y = (y1 < y2) ? y1 : y2;
 	obj.region.max.x = (x1 < x2) ? x2 : x1;
 	obj.region.max.y = (y1 < y2) ? y2 : y1;
 	
