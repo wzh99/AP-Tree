@@ -163,7 +163,7 @@ struct APTree::Node {
     struct SpatialNode {
         size_t nPartX, nPartY;
         std::vector<double> partX, partY; // has one more element than nPart
-        std::vector<std::unique_ptr<Node>> cells; // 1D vector of m * n cells [0 ... m-1][0 ... n-1]
+        std::unique_ptr<std::unique_ptr<Node>[]> cells; // 1D vector of m * n cells [0 ... m-1][0 ... n-1]
 
         Pointu GetCellIndex(const Pointf &pt) const {
             size_t ix = rangeSearch(partX, pt.x);
@@ -265,6 +265,7 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQueries, siz
         node->spatial->nPartY = spPart.nPartY;
         node->spatial->partX = spPart.partX;
         node->spatial->partY = spPart.partY;
+        node->spatial->cells = std::unique_ptr<std::unique_ptr<Node>[]>(new std::unique_ptr<Node>[spPart.nPartX * spPart.nPartY]);
         for (size_t i = 0; i < spPart.nPartX; i++)
             for (size_t j = 0; j < spPart.nPartY; j++) {
                 size_t index = j + i * spPart.nPartY;
@@ -378,8 +379,9 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
 APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested *> &subQueries, const Boundf &bound)
 {
     SpatialPartition partition;
-    size_t nPartX = partition.nPartX = std::floor(std::sqrt(nCuts));
-    size_t nPartY = partition.nPartY = nCuts / nPartX;
+    size_t nPart = std::min(nCuts, subQueries.size());
+    size_t nPartX = partition.nPartX = std::floor(std::sqrt(nPart));
+    size_t nPartY = partition.nPartY = nPart / nPartX;
 
     // Prune dummy queries
     std::vector<QueryNested *> cellQry, dummy;
