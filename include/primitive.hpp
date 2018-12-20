@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <iostream>
 
 using uint = uint32_t;
 using ulong = uint64_t;
@@ -25,6 +26,12 @@ struct Point {
     bool operator == (const PointType &pt) const { return x == pt.x && y == pt.y; }
     bool operator != (const PointType &pt) const { return !(pt == *this); }
 };
+
+template <class Type>
+std::ostream & operator << (std::ostream &os, const Point<Type> &pt) {
+    os << "[ " << pt.x << ' ' << pt.y << " ]";
+    return os;
+}
 
 using Pointi = Point<int>;
 using Pointu = Point<size_t>;
@@ -60,6 +67,12 @@ struct Bound {
 
     Type Area() const { return (max.x - min.x) * (max.y - min.y); }
 };
+
+template <class Type>
+std::ostream & operator << (std::ostream &os, const Bound<Type> &bd) {
+    os << "[ " << bd.min << ' ' << bd.max << " ]";
+    return os;
+}
 
 using Boundi = Bound<int>;
 using Boundu = Bound<size_t>;

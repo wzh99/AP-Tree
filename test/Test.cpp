@@ -38,10 +38,12 @@ int main()
 	vocab.push_back("Valley");
 	vocab.push_back("Wash");
 	vocab.push_back("Wildlife");
+	cout << generateQuery("Bruceville", "Cemetery");
 
 	STObject object1, object2;
 	object1 = generateObject("Sal", "Creek", "Wildlife");
 	object2 = generateObject("Boulder", "Draw", "Park");
+	cout << object1;
 
 	APTree aptree(vocab, queries, 4, 4);
 	aptree.Match(object1);

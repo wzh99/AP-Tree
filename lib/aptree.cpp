@@ -67,7 +67,7 @@ static std::vector<Type> commonElements(const std::set<Type> &v1, const std::set
         else
             ite2++;
     }
-    return std::move(common);
+    return common;
 }
 
 struct APTree::QueryNested {
