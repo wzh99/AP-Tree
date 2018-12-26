@@ -557,6 +557,7 @@ std::vector<Query> APTree::Match(const STObject &obj) const {
     STObjectNested stObjN{obj.location, std::vector<size_t>()};
     for (const auto &kw : obj.keywords)
         stObjN.keywords.push_back(dictIndex.find(kw)->second);
+    std::sort(stObjN.keywords.begin(), stObjN.keywords.end());
 
     // Start match recursion
     std::set<QueryNested> queries;
