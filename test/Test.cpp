@@ -15,7 +15,7 @@ int main()
 	vector<string> vocab;
 
 	srand(time(NULL));
-	generateTestData(4, 1000, 7, 500, 1000, query, object, vocab);
+	generateTestData(4, 4000, 7, 2000, 4000, query, object, vocab);
 
 	APTree tree0(vocab, query, 16, 10);
 

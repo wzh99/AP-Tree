@@ -314,7 +314,7 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
 
     // Propose a partition which divides words by a fixed offset
     size_t nPart = std::min(nCuts, offsetWordQryVec.size()); // number of words to be partitioned may be less than nCuts
-    size_t nWordPerPart = (offsetWordQryVec.size() - 1) / nPart + 1;
+    size_t nWordPerPart = (offsetWordQryVec.size() - 1) / (nPart - 1);
     std::vector<KeywordCut> propCuts; // proposed cuts
     propCuts.reserve(nPart);
     for (size_t i = 0; i < nPart; i++) {
@@ -419,7 +419,7 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         bndQryVec.insert(bndQryVec.end(), bndQryMapX.begin(), bndQryMapX.end());
 
         // Propose a partition which divides queries by a fixed bound number offset
-        size_t nBndPerPart = (bndStatVec.size() - 1) / nPartX;
+        size_t nBndPerPart = (bndStatVec.size() - 1) / (nPartX - 1);
         std::unique_ptr<size_t[]> partIdx(new size_t[nPartX + 1]); // indexes in bound statistics vector
         for (size_t i = 0; i < nPartX; i++) 
             partIdx[i] = i * nBndPerPart;
@@ -479,8 +479,8 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         bndQryVec.insert(bndQryVec.end(), bndQryMapY.begin(), bndQryMapY.end());
 
         // Propose a partition which divides queries by a fixed bound number offset
-        size_t nBndPerPart = (bndStatVec.size() - 1) / nPartX;
-        std::unique_ptr<size_t[]> partIdx(new size_t[nPartX + 1]);
+        size_t nBndPerPart = (bndStatVec.size() - 1) / (nPartY - 1);
+        std::unique_ptr<size_t[]> partIdx(new size_t[nPartY + 1]);
         for (size_t i = 0; i < nPartY; i++) 
             partIdx[i] = i * nBndPerPart;
         partIdx[nPartY] = bndStatVec.size() - 1;
