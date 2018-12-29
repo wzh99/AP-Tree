@@ -44,7 +44,7 @@ static bool isSubset(const std::vector<Type> &super, const std::vector<Type> &su
             superIte++;
             subIte++;
         } else 
-            while (*superIte < *subIte && superIte != super.end())
+            while (superIte != super.end() && *superIte < *subIte)
                 superIte++;
     }
     return true;
