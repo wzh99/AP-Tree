@@ -68,7 +68,7 @@ AP树的相关算法基本根据原论文所给的伪代码来实现，以下的
 
 在\texttt{Match}函数内，首先将\texttt{STObject}转成\texttt{STObjectNested}，调用私有的\texttt{match}函数进行匹配，匹配算法完全按照论文中的伪代码实现。将得到的\texttt{std::set}内的\texttt{QueryNested}转成\texttt{Query}，返回给类的使用者。
 
-最后介绍三个和容器中有序元素相关的工具函数：\texttt{commonElements}能够寻找两个容器中的相同的元素，对于大小为$m$和$n$的两个容器，以$O(m+n)$的时间复杂度找到相同元素，主要用于\texttt{spatialHeuristic}中寻找两个坐标轴上特定范围内的查询项的交集。\texttt{isSubset}能够判断一个容器中的元素组成的集合是否是另一个容器中元素集合的子集，同样可以达到$O(m+n)$的时间复杂度，主要用于验证\texttt{QueryNested}和\texttt{STObjectNested}关键词之间的包含关系。\texttt{rangeSearch}用查询某个类型为\texttt{Type}的值，在一个用有序数组\texttt{std::vector<Type>}表示的若干首尾相接区间左端点中的索引。该算法类似二分查找，不过验证的是区间和值的包含关系，而非值的相等关系，主要用在查找某个点在q-node中所对应的cell的二维索引。\texttt{Node::KeywordNode}中的\texttt{Search()}成员函数和\texttt{rangeSearch}行为类似，不过其针对的区间\texttt{KeywordCut}不保证首尾相接。
+最后介绍三个和容器中有序元素相关的工具函数：\texttt{commonElements}能够寻找两个容器中的相同的元素，对于大小为$m$和$n$的两个容器，以$O(m+n)$的时间复杂度找到相同元素，主要用于\texttt{spatialHeuristic}中寻找两个坐标轴上特定范围内的查询项的交集。\texttt{isSubset}能够判断一个容器中的元素组成的集合是否是另一个容器中元素集合的子集，同样可以达到$O(m+n)$的时间复杂度，主要用于验证\texttt{QueryNested}和\texttt{STObjectNested}关键词之间的包含关系。\texttt{rangeSearch}用查询某个类型为\texttt{Type}的值，在一个用有序数组\texttt{std::vector<Type>}表示的若干首尾相接区间左端点中的索引。该算法类似二分查找，不过验证的是区间和值的包含关系，而非值的相等关系，主要用在查找某个点在q-node中所对应的cell的二维索引。\texttt{Node::KeywordNode}中的\texttt{Search}成员函数和\texttt{rangeSearch}行为类似，不过其针对的区间\texttt{KeywordCut}不保证首尾相接。
 
 \section{性能测试}
 
@@ -84,16 +84,16 @@ AP树的相关算法基本根据原论文所给的伪代码来实现，以下的
 
 \subsection{不足}
 \begin{enumerate}
-    \item AP树对于空间的需求量较大。在存储实现中可以看到，尽管对于结点的存储方案已经做了一定优化，但是单个结点占用空间依然较大。在树的构建过程中，每一层递归都需要储存对应结点查询项的统计信息。当查询项的总数较大时，势必造成内存占用的激增。
+    \item AP树对于空间的需求量较大。在存储实现中可以看到，尽管对于结点的存储方案已经做了一定优化，但是单个结点占用空间依然较大。在树的构建过程中，每一层递归都需要储存对应结点查询项的统计信息。当查询项的总数较大时，势必造成内存占用的激增。在我们的测试中，在注册了5000个查询项后，内存占用就超过了90MB。如果是实际应用中上百万的查询项，其内存占用是相当巨大的。
     \item AP树的构造较为复杂。AP树由于要对两种分割模式进行混合，要实现它就必须要比其它单模式的分割树付出多一倍以上的工作量。本项目关于\texttt{APTree}的实现代码，仅仅实现了AP树最基础的功能，还不包括查询项的维护，就已有六百余行。如果要将它整合到一个可实际应用的数据库系统中的话，其工作量是可想而知的，这显然不利于一个数据库系统的维护、更新和迭代。
 \end{enumerate}
 
 \section{未来工作}
 由于时间和开发者能力所限，该项目还有许多不完善的地方，在将来可能会对以下方面进行改进或补充。
 \begin{enumerate}
-    \item 当前的\texttt{APTree}中所有的查询项只能在构造函数里一次性注册，而原论文中作者提到可以利用KL散度的计算对查询项进行动态地注册和注销。由于作者并未详细描述其算法，且此项目开发者尚不具备信息论的相应知识，所以并未实现。今后可以尝试阅读相关的文献，在\texttt{APTree}中增加\texttt{Register()}和\texttt{Unregister()}成员方法，实现该功能。
+    \item 当前的\texttt{APTree}中所有的查询项只能在构造函数里一次性注册，而原论文中作者提到可以利用KL散度的计算对查询项进行动态地注册和注销。由于作者并未详细描述其算法，且此项目开发者尚不具备信息论的相应知识，所以并未实现。今后可以尝试阅读相关的文献，在\texttt{APTree}中增加\texttt{Register}和\texttt{Unregister}成员方法，实现该功能。
     \item 我们的实验中只实现了AP树一种结构，并未实现论文中提到的其他空间文本分割结构，所以无法进行比较，不能体现AP树的优势。今后考虑实现IQ树、$\mathrm{R^t}$树、顺序关键词字典树等结构，进行横向比较。
-    \item 我们当前的测试只考察了\texttt{APTree}的执行时间，即只考察了时间复杂度方面的性质。对于其内存占用的情况只做了定性的分析，没有进行定量测试。今后考虑直接使用或设计相应的测试工具，对其内存的使用情况进行跟踪。
+    \item 我们当前的测试只考察了\texttt{APTree}的执行时间，分析了时间复杂度方面的性质，对于其内存占用的情况只做了定性的分析与简单的记录。今后考虑直接使用或设计相应的测试工具，对其内存的使用情况进行具体的跟踪。
 \end{enumerate}
 
 \newpage
@@ -104,6 +104,13 @@ AP树的相关算法基本根据原论文所给的伪代码来实现，以下的
 本文所实现的AP树源代码仓库在GitHub上进行托管：\url{https://github.com/wzh99/AP-Tree}，采用MIT许可证。
 
 \section{数据集来源}
+本文测试所使用的关键词数据集来自US Board on Geographic Names（\url{http://geonames.usgs.gov}）
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{gn.png}
+    \caption{US Board on Geographic Names网站}
+\end{figure}
 
 \section{分工}
 \begin{itemize}
