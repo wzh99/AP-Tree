@@ -251,7 +251,6 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQry)
     }
 
     // Build keyword or partition node according to computed costs
-	COUT(kwCost) COUT(spCost)
     if (kwCost < spCost) { // keyword partition is chosen
         node->type = Node::KEYWORD;
         node->keyword = std::make_unique<Node::KeywordNode>();
