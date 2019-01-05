@@ -130,6 +130,7 @@ struct APTree::Node {
         size_t offset; // the same with KeywordPartition
         std::vector<KeywordCut> cuts; // sorted keyword cuts for binary search
         std::map<KeywordCut, std::unique_ptr<Node>> children;
+		std::map<KeywordCut, size_t> nQry; // record number of descendent queries in current cut in last construction
 
         // Find corresponding cut based on object keywords
         // The algorithm is similar to rangeSearch(), but deals with keyword cuts instead of ranges
@@ -166,6 +167,7 @@ struct APTree::Node {
         size_t nPartX, nPartY;
         std::vector<double> partX, partY; // has one more element than nPart
         std::unique_ptr<std::unique_ptr<Node>[]> cells; // 1D vector of m * n cells [0 ... m-1][0 ... n-1]
+		std::unique_ptr<size_t[]> nQry;
 
         Pointu GetCellIndex(const Pointf &pt) const {
             size_t ix = rangeSearch(partX, pt.x);
@@ -203,6 +205,11 @@ APTree::APTree(const std::vector<std::string> &vocab, const std::vector<Query> &
         nestedQueries.push_back({qry.region, std::move(indexVec)});
     }
 
+	// Remove duplicated queries
+	std::sort(nestedQueries.begin(), nestedQueries.end());
+	auto newEnd = std::unique(nestedQueries.begin(), nestedQueries.end());
+	nestedQueries.erase(newEnd, nestedQueries.end());
+
     // Build nested query pointer vector
     std::vector<QueryNested *> nstdQryPtrs;
     auto qryArrPtr = nestedQueries.data();
@@ -222,8 +229,10 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQry)
     if ((!node->useKw && !node->useSp) || subQry.size() < theta_Q) {
         node->type = Node::QUERY;
         node->query = std::make_unique<Node::QueryNode>();
-        for (const auto ptr : subQry)
-            node->query->queries.push_back(*ptr); // copy queries into node
+		// Copy queries into node
+		auto &queries = node->query->queries;
+		for (const auto ptr : subQry)
+			queries.push_back(*ptr);
         return;
     }
 
@@ -245,38 +254,53 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQry)
     if (kwCost < spCost) { // keyword partition is chosen
         node->type = Node::KEYWORD;
         node->keyword = std::make_unique<Node::KeywordNode>();
-        node->dummy = std::make_unique<Node>(node->offset + 1, node->bound, false, node->useSp);
-        build(node->dummy.get(), kwPart.dummy); 
-            // keyword dummy node can no longer be partitioned by keyword again
+		if (kwPart.dummy.size() > 0) {
+			node->dummy = std::make_unique<Node>(node->offset + 1, node->bound, false, node->useSp);
+			build(node->dummy.get(), kwPart.dummy);
+			// keyword dummy node can no longer be partitioned by keyword again
+		}
 
         node->keyword->cuts = kwPart.cuts;
+		size_t totalQry = 0;
         for (const auto &pair : kwPart.queries) {
             auto ptr = new Node(node->offset + 1, node->bound, node->useKw, node->useSp);
-            node->keyword->children[pair.first] = std::unique_ptr<Node>(ptr);
+			node->keyword->children[pair.first] = std::unique_ptr<Node>(ptr);
+			node->keyword->nQry[pair.first] = pair.second.size();
+			totalQry += pair.second.size();
             build(ptr, pair.second);
         }
 
     } else { // spatial partition is chosen
         node->type = Node::SPATIAL;
         node->spatial = std::make_unique<Node::SpatialNode>();
-        node->dummy = std::make_unique<Node>(node->offset, node->bound, node->useKw, false);
-        build(node->dummy.get(), spPart.dummy);
-            // spatial dummy node can no longer be partitioned by space again
+		if (spPart.dummy.size() > 0) {
+			node->dummy = std::make_unique<Node>(node->offset, node->bound, node->useKw, false);
+			build(node->dummy.get(), spPart.dummy);
+			// spatial dummy node can no longer be partitioned by space again
+		}
             
         node->spatial->nPartX = spPart.nPartX;
         node->spatial->nPartY = spPart.nPartY;
         node->spatial->partX = spPart.partX;
         node->spatial->partY = spPart.partY;
 		node->spatial->cells = std::make_unique<std::unique_ptr<Node>[]>(spPart.nPartX * spPart.nPartY);
+		node->spatial->nQry = std::make_unique<size_t[]>(spPart.nPartX * spPart.nPartY);
         for (size_t i = 0; i < spPart.nPartX; i++)
             for (size_t j = 0; j < spPart.nPartY; j++) {
                 size_t index = j + i * spPart.nPartY;
 				auto bound = Boundf{ {spPart.partX[i], spPart.partY[j]}, {spPart.partX[i + 1], spPart.partY[j + 1]} };
                 auto ptr = new Node(node->offset, bound, node->useKw, node->useSp);
                 node->spatial->cells[index] = std::unique_ptr<Node>(ptr);
+				node->spatial->nQry[index] = spPart.cells[index].size();
                 build(ptr, spPart.cells[index]);
             }
     }
+}
+
+// Bucket problem for heuristic algorithm
+// Put m queries in n buckets. Suppose buckets have the same capacity, what is the minimum capacity required?
+inline size_t bucketCapacity(size_t m, size_t n) {
+	return m % n == 0 ? (m / n) : (m / n + 1);
 }
 
 APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested *> &subQry, size_t offset)
@@ -316,11 +340,15 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
 
     // Propose a partition which divides words by a fixed offset
     size_t nPart = std::min(f, offsetWordQryVec.size()); // number of words to be partitioned may be less than nCuts
-    size_t nWordPerPart = (offsetWordQryVec.size() - 1) / (nPart - 1);
+	size_t nWordPerPart = bucketCapacity(offsetWordQryVec.size(), nPart);
     std::vector<KeywordCut> propCuts; // proposed cuts
     propCuts.reserve(nPart);
     for (size_t i = 0; i < nPart; i++) {
         size_t cutStart = i * nWordPerPart; // cutStart and cutEnd are indexes in offsetWordQryVec, not actual word indexes
+		if (cutStart >= offsetWordQryVec.size()) { 
+			nPart = i;
+			break; // break in case of empty buckets
+		}
         size_t cutEnd = std::min(offsetWordQryVec.size(), cutStart + nWordPerPart) - 1;
         propCuts.push_back({offsetWordQryVec[cutStart].first, offsetWordQryVec[cutEnd].first});
     }
@@ -421,10 +449,15 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         bndQryVec.insert(bndQryVec.end(), bndQryMapX.begin(), bndQryMapX.end());
 
         // Propose a partition which divides queries by a fixed bound number offset
-        size_t nBndPerPart = (bndStatVec.size() - 1) / (nPartX - 1);
+		size_t nBndPerPart = bucketCapacity(bndStatVec.size(), nPartX);
         std::unique_ptr<size_t[]> partIdx(new size_t[nPartX + 1]); // indexes in bound statistics vector
-        for (size_t i = 0; i < nPartX; i++) 
-            partIdx[i] = i * nBndPerPart;
+		for (size_t i = 0; i < nPartX; i++) {
+			if (i * nBndPerPart >= bndStatVec.size()) {
+				nPartX = i;
+				break;
+			}
+			partIdx[i] = i * nBndPerPart;
+		}
         partIdx[nPartX] = bndStatVec.size() - 1;
 
         // Define cost function for each proposed axis partition
@@ -481,10 +514,15 @@ APTree::SpatialPartition APTree::spatialHeuristic(const std::vector<QueryNested 
         bndQryVec.insert(bndQryVec.end(), bndQryMapY.begin(), bndQryMapY.end());
 
         // Propose a partition which divides queries by a fixed bound number offset
-        size_t nBndPerPart = (bndStatVec.size() - 1) / (nPartY - 1);
+        size_t nBndPerPart = bucketCapacity(bndStatVec.size(), nPartY);
         std::unique_ptr<size_t[]> partIdx(new size_t[nPartY + 1]);
-        for (size_t i = 0; i < nPartY; i++) 
-            partIdx[i] = i * nBndPerPart;
+		for (size_t i = 0; i < nPartY; i++) {
+			if (i * nBndPerPart >= bndStatVec.size()) {
+				nPartY = i;
+				break;
+			}
+			partIdx[i] = i * nBndPerPart;
+		}
         partIdx[nPartY] = bndStatVec.size() - 1;
 
         // Define cost function for each proposed axis partition
@@ -615,7 +653,7 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
 /*
 	Index Maintenance Strategy
 
-    Since index maintenance is just briefly introduced in original paper, it should be elaborated for practical implementation
+    Since index maintenance is just briefly introduced in original paper, it should be elaborated on for practical implementation
 
     Algorithm:
     # Return new node if reconstructed, or the original one if not
@@ -644,7 +682,7 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
                 build(newNode, subQry)
                 return newNode
             else:
-                for each bucket(child node):
+                for each bucket:
                     bcktNewQry := Find matched queries in newQry
                     newBucket := register(bucket, bcktNewQry)
                     if newBucket != bucket:
@@ -657,3 +695,46 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
     2. Add members recording weights(numbers of queries related) in Node for KL-Divergence computation
 
 */
+
+void APTree::Register(const std::vector<Query> &qry) {
+	auto v = collect(root);
+}
+
+std::vector<APTree::QueryNested *> APTree::collect(const Node *node) const 
+{
+	// Begin collecting recursion
+	std::vector<QueryNested *> out;
+	collect(node, out);
+	
+	// Remove duplicated elements
+	std::sort(out.begin(), out.end(), [](auto p1, auto p2) { return *p1 < *p2; });
+	auto newEnd = std::unique(out.begin(), out.end(), [](auto p1, auto p2) { return *p1 == *p2; });
+	out.erase(newEnd, out.end());
+
+	return out;
+}
+
+void APTree::collect(const Node *node, std::vector<QueryNested *> &out) const 
+{
+	if (node->type == Node::QUERY) {
+		auto &queries = node->query->queries;
+		for (auto &q : queries)
+			out.push_back(&q);
+	}
+	else if (node->type == Node::KEYWORD) {
+		if (node->dummy.get())
+			collect(node->dummy.get(), out);
+		for (const auto &pair : node->keyword->children)
+			if (pair.second.get())
+				collect(pair.second.get(), out);
+	}
+	else if (node->type == Node::SPATIAL) {
+		if (node->dummy.get())
+			collect(node->dummy.get(), out);
+		for (size_t i = 0; i < node->spatial->nPartX; i++)
+			for (size_t j = 0; j < node->spatial->nPartY; j++) {
+				size_t idx = j + i * node->spatial->nPartY;
+				collect(node->spatial->cells[idx].get(), out);
+			}
+	}
+}

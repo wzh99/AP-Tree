@@ -20,6 +20,7 @@ int main()
 	APTree tree0(vocab, query, 16, 10, 0.001);
 
 	tree0.Match(object[0]);
+	tree0.Register(query);
 	//cout << object[0] << "match result:\n" << tree0.Match(object[0]).size();
 }
 
