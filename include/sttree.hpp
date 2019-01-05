@@ -34,4 +34,5 @@ inline std::ostream & operator << (std::ostream &os, const Query &qry) {
 class STTree {
 public:
     virtual std::vector<Query> Match(const STObject &obj) const = 0;
+	virtual void Register(const std::vector<Query> &qry) = 0;
 };

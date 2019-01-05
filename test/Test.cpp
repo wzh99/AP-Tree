@@ -10,11 +10,7 @@ void generateTestData(int querySize, int queryNumber, int objectSize, int object
 					  double maxQueryEdge, double minQueryEdge,
 					  vector<Query> &query, vector<STObject> &object, vector<string> &vocab);
 void varyDataParameters(int querySize, int queryNumber, double maxQueryEdge, double minQueryEdge);
-void varyConstructParameters(int f, int ��q);
-
-//test���ݣ� number of queries 1000~5000,����ʱ�䣬�Լ�����object��matchʱ��ı仯
-			//query�����Ӱ�죻
-			//query�ؼ�������Ӱ�죻
+void varyConstructParameters(int f, int thetaq);
 
 int main()
 {
@@ -24,12 +20,12 @@ int main()
 	//for (int varyF = 10; varyF <= 100; varyF+=10)
 	//	varyConstructParameters(varyF, 10);
 
-	//effect of ��q
-	cout << "��q:\n";
-	for (int vary��q = 10; vary��q < 300; vary��q += 10) varyConstructParameters(16, vary��q);
+	//effect of thetaq
+	cout << "thetaq:\n";
+	for (int varythetaq = 10; varythetaq < 300; varythetaq += 10) varyConstructParameters(16, varythetaq);
 }
 
-void varyConstructParameters(int f, int ��q) {
+void varyConstructParameters(int f, int thetaq) {
 	vector<Query> query;
 	vector<STObject> object;
 	vector<string> vocab;
@@ -37,9 +33,9 @@ void varyConstructParameters(int f, int ��q) {
 	generateTestData(3, 2000, 7, 2000, 1000, 0.1, 0.01, query, object, vocab);
 
 	APTree *tree;
-	//cout << "Construction parameters: f:" << f << " ��q:" << ��q << "\nconstruction: ";
+	//cout << "Construction parameters: f:" << f << " thetaq:" << thetaq << "\nconstruction: ";
 //	TIME_COUNT(
-		tree = new APTree(vocab, query, f, ��q)
+		tree = new APTree(vocab, query, f, thetaq, 0.001)
 		;
 //			, 1, milliseconds);
 
@@ -61,7 +57,7 @@ void varyDataParameters(int querySize, int queryNumber, double maxQueryEdge, dou
 	APTree *tree;
 	cout << "Data parameters: querySize:" << querySize << " queryNumber:" << queryNumber 
 		<< " maxQueryEdge:" << maxQueryEdge << " minQueryEdge:" << minQueryEdge << "\nconstruction: ";
-	TIME_COUNT(tree = new APTree(vocab, query, 16, 10), 1, milliseconds);
+	TIME_COUNT(tree = new APTree(vocab, query, 16, 10, 0.001), 1, milliseconds);
 
 	cout << "match 20000: ";
 	TIME_COUNT(

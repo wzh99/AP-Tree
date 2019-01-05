@@ -19,6 +19,7 @@
 
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm} 
 \pagestyle{plain}
+\setmonofont{Consolas}
 
 \begin{document}
 \maketitle
@@ -48,16 +49,16 @@ AP树还提供了建立索引的方法。使用两个标志$kP$和$sP$来表示�
 \subsection{接口设计}
 首先定义所涉及的两个结构体：空间文本对象\texttt{STObject}以及查询项\texttt{Query}。\texttt{STObject}有两个成员：\texttt{Pointf}类型的位置\texttt{location}以及\texttt{std::set<std::string>}类型的关键词集合\texttt{keywords}。\texttt{STObject}也有两个成员：\texttt{Boundf}类型的方形区域\texttt{region}和\texttt{std::set<std::string>}类型的关键词集合\texttt{keywords}，其中\texttt{Boundf}为由两个\texttt{Pointf}确定的轴对齐包围区域。类的使用者需要通过这两个结构来和类进行交互。
 
-本文所实现的AP树，是一种空间文本分割树，定义抽象的空间文本分割树类\texttt{STTree}，其有一个纯虚函数\texttt{std::vector<Query> Match(const STObject \&) const}。用户通过输入\texttt{STObject}，可获得查询项，存放于一个\texttt{std::vector}中。AP树类\texttt{APTree}继承自\texttt{STTree}。\texttt{APTree}的构造函数声明为\texttt{APTree(const std::vector<std::string> \&vocab, const std::vector<Query> \&queries, size\_t nCuts, size\_t threshold)}，其中\texttt{vocab}为所有的关键词，\texttt{queries}为需要注册的查询项，\texttt{nCuts}即论文中的$f$，为每个k-node或s-node的建议分割数目，\texttt{threshold}即论文中的$\theta_q$，为每个q-node的最大查询项容量。
+本文所实现的AP树，是一种空间文本分割树，定义抽象的空间文本分割树类\texttt{STTree}，其有一个纯虚函数\texttt{std::vector<Query> Match(const STObject \&) const}。用户通过输入\texttt{STObject}，可获得查询项，存放于一个\texttt{std::vector}中。AP树类\texttt{APTree}继承自\texttt{STTree}。\texttt{APTree}的构造函数声明为\texttt{APTree(const std::vector<std::string> \&vocab, const std::vector<Query> \&queries, \\size\_t nCuts, size\_t threshold)}，其中\texttt{vocab}为所有的关键词，\texttt{queries}为需要注册的查询项，\texttt{nCuts}即论文中的$f$，为每个k-node或s-node的建议分割数目，\texttt{threshold}即论文中的$\theta_q$，为每个q-node的最大查询项容量。
 
 \subsection{存储实现}
 由于AP树存储的数据体量大，树的构建和查询算法较为复杂，为了能够发挥AP树的优势，在内部存储方式的实现上需要一定的构思。
 
 首先介绍AP树内部对于空间文本对象和查询项的存储。在\texttt{APTree}内部，使用\texttt{STObjectNested}和\texttt{QueryNested}来分别表示这两种结构。在两种结构中，位置信息，即\texttt{location}和\texttt{region}保持原样，而\texttt{keywords}变为\texttt{std::vector<size\_t>}类型，其中\texttt{std::vector}所存储的是该关键词在关键词词汇\texttt{vocab}中的索引。考虑到字符串的比较较为耗时，而整数的比较效率较高，在建树和查找的过程中可以直接对序号进行操作，而非对字符串。同时，由于AP树算法中有对\texttt{keywords}随机访问的需求，应该将其从原来的\texttt{std::set}转为\texttt{std::vector}以实现高效的随机访问。
 
-然后介绍关键词分割方案和空间分割方案的存储表示。关键词分割方案用\texttt{KeywordPartition}结构体表示，其成员包括：类型为\texttt{std::vector<KeywordCut>}的分割序列\texttt{cuts}，其中\texttt{KeywordCut}为关键词序号的闭区间；类型为\texttt{std::map<KeywordCut, std::vector<QueryNested *>>}的查询项查找表\texttt{queries}，用来表示每个关键词闭区间对应哪些查询项，注意到这里使用的是\texttt{QueryNested}的指针类型，这是为了节约运行时内存占用，避免\texttt{QueryNested}的多次复制；类型为\texttt{std::vector<QueryNested *>}的dummy cut表\texttt{dummy}；还有一个表示该分割方案代价的浮点数\texttt{cost}。空间分割方案用\texttt{SpatialPartition}结构体表示，其成员包括：类型为\texttt{size\_t}，在X、Y轴上个各自的分割数目\texttt{nPartX}、\texttt{nPartY}；类型为\texttt{std::vector<double>}的分割位置\texttt{partX}，\texttt{partY}，注意这两个\texttt{std::vector}的\texttt{size()}各自比\texttt{nPartX}，\texttt{nPartY}多一个，为了代码清晰，不使用它们的\texttt{size()}信息；类型为\texttt{std::unique\_ptr <std::vector<QueryNested *>>}的单元格查询项序列\texttt{cells}，注意这是一个一维的数组，一个二维的单元格索引需要通过运算转为一维的数组索引；剩下的\texttt{dummy}和\texttt{cost}与\texttt{KeywordPartition}相同，不作赘述。
+然后介绍关键词分割方案和空间分割方案的存储表示。关键词分割方案用\texttt{KeywordPartition}结构体表示，其成员包括：类型为\texttt{std::vector<KeywordCut>}的分割序列\texttt{cuts}，其中\texttt{KeywordCut}为关键词序号的闭区间；类型为\texttt{std::map<KeywordCut, std::vector<QueryNested *>>}的查询项查找表\texttt{queries}，用来表示每个关键词闭区间对应哪些查询项，注意到这里使用的是\texttt{QueryNested}的指针类型，这是为了节约运行时内存占用，避免\texttt{QueryNested}的多次复制；类型为\texttt{std::vector<QueryNested *>}的dummy cut表\texttt{dummy}；还有一个表示该分割方案代价的浮点数\texttt{cost}。空间分割方案用\\\texttt{SpatialPartition}结构体表示，其成员包括：类型为\texttt{size\_t}，在X、Y轴上个各自的分割数目\texttt{nPartX}、\texttt{nPartY}；类型为\texttt{std::vector<double>}的分割位置\texttt{partX}，\texttt{partY}，注意这两个\texttt{std::vector}的\texttt{size()}各自比\texttt{nPartX}，\texttt{nPartY}多一个，为了代码清晰，不使用它们的\texttt{size()}信息；类型为\\\texttt{std::unique\_ptr<std::vector<QueryNested *>>}的单元格查询项序列\texttt{cells}，注意这是一个一维的数组，一个二维的单元格索引需要通过运算转为一维的数组索引；剩下的\texttt{dummy}和\texttt{cost}与\texttt{KeywordPartition}相同，不作赘述。
 
-最后介绍AP树的结点类型\texttt{Node}，由于AP树有三种结点类型，而每个结点的子节点的类型父节点是不清楚的，这里使用一个\texttt{NodeType}枚举来标记每个子节点的类型；同时每个结点需要存储结点的区域\texttt{bound}。对于三种结点各自的信息，定义了\texttt{Node}的内部结构体来储存。为了节约结点空间，使用\texttt{std::unique\_ptr}来实现较为灵活的管理，默认状况下为\texttt{nullptr}，当结点信息完备时，再根据结点类型动态地分配相应的存储空间。q-node类型\texttt{Node::QueryNode}内只需要存储一个\texttt{std::vector<QueryNested>}即可；k-node类型\texttt{Node::KeywordNode}和s-node类型\texttt{Node::SpatialNode}的成员分别与\texttt{KeywordPartition}和\texttt{SpatialPartition}成员类似，不同之处在于\texttt{Node::KeywordNode}和\texttt{Node::SpatialNode}内不需要存储\texttt{cost}信息，且各自的查找表内存储的是\texttt{std::unique\_ptr<Node>}的数组，而非\texttt{QueryNested *}；由于k-node和s-node内共有dummy cut，考虑将其放在\texttt{Node}的一个\texttt{std::unique\_ptr}中，避免重复定义。这样一来，\texttt{APTree}析构的时候所有内存空间可以自动回收，不需要手动\texttt{delete}，也不会造成内存泄漏。
+最后介绍AP树的结点类型\texttt{Node}，由于AP树有三种结点类型，而每个结点的子节点的类型父节点是不清楚的，这里使用一个\texttt{NodeType}枚举来标记每个子节点的类型；同时每个结点需要存储结点的区域\texttt{bound}。对于三种结点各自的信息，定义了\texttt{Node}的内部结构体来储存。为了节约结点空间，使用\texttt{std::unique\_ptr}来实现较为灵活的管理，默认状况下为\texttt{nullptr}，当结点信息完备时，再根据结点类型动态地分配相应的存储空间。q-node类型\texttt{QueryNode}内只需要存储一个\texttt{std::vector<QueryNested>}即可；k-node类型\texttt{KeywordNode}和s-node类型\texttt{SpatialNode}的成员分别与\texttt{KeywordPartition}和\texttt{SpatialPartition}成员类似，不同之处在于\texttt{KeywordNode}和\texttt{SpatialNode}内不需要存储\texttt{cost}信息，且各自的查找表内存储的是\texttt{std::unique\_ptr<Node>}的数组，而非\texttt{QueryNested *}；由于k-node和s-node内共有dummy cut，考虑将其放在\texttt{Node}的一个\texttt{std::unique\_ptr}中，避免重复定义。这样一来，\texttt{APTree}析构的时候所有内存空间可以自动回收，不需要手动\texttt{delete}，也不会造成内存泄漏。
 
 \subsection{运算实现}
 AP树的相关算法基本根据原论文所给的伪代码来实现，以下的介绍只作大致思路的梳理和部分要点的提示。
