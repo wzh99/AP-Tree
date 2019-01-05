@@ -10,11 +10,11 @@ void generateTestData(int querySize, int queryNumber, int objectSize, int object
 					  double maxQueryEdge, double minQueryEdge,
 					  vector<Query> &query, vector<STObject> &object, vector<string> &vocab);
 void varyDataParameters(int querySize, int queryNumber, double maxQueryEdge, double minQueryEdge);
-void varyConstructParameters(int f, int ¦Èq);
+void varyConstructParameters(int f, int ï¿½ï¿½q);
 
-//testÄÚÈÝ£º number of queries 1000~5000,¹¹½¨Ê±¼ä£¬ÒÔ¼°µ¥¸öobjectµÄmatchÊ±¼äµÄ±ä»¯
-			//queryÃæ»ýµÄÓ°Ïì£»
-			//query¹Ø¼ü´ÊÁ¿µÄÓ°Ïì£»
+//testï¿½ï¿½ï¿½Ý£ï¿½ number of queries 1000~5000,ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ä£¬ï¿½Ô¼ï¿½ï¿½ï¿½ï¿½ï¿½objectï¿½ï¿½matchÊ±ï¿½ï¿½Ä±ä»¯
+			//queryï¿½ï¿½ï¿½ï¿½ï¿½Ó°ï¿½ì£»
+			//queryï¿½Ø¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó°ï¿½ì£»
 
 int main()
 {
@@ -24,12 +24,12 @@ int main()
 	//for (int varyF = 10; varyF <= 100; varyF+=10)
 	//	varyConstructParameters(varyF, 10);
 
-	//effect of ¦Èq
-	cout << "¦Èq:\n";
-	for (int vary¦Èq = 10; vary¦Èq < 300; vary¦Èq += 10) varyConstructParameters(16, vary¦Èq);
+	//effect of ï¿½ï¿½q
+	cout << "ï¿½ï¿½q:\n";
+	for (int varyï¿½ï¿½q = 10; varyï¿½ï¿½q < 300; varyï¿½ï¿½q += 10) varyConstructParameters(16, varyï¿½ï¿½q);
 }
 
-void varyConstructParameters(int f, int ¦Èq) {
+void varyConstructParameters(int f, int ï¿½ï¿½q) {
 	vector<Query> query;
 	vector<STObject> object;
 	vector<string> vocab;
@@ -37,9 +37,9 @@ void varyConstructParameters(int f, int ¦Èq) {
 	generateTestData(3, 2000, 7, 2000, 1000, 0.1, 0.01, query, object, vocab);
 
 	APTree *tree;
-	//cout << "Construction parameters: f:" << f << " ¦Èq:" << ¦Èq << "\nconstruction: ";
+	//cout << "Construction parameters: f:" << f << " ï¿½ï¿½q:" << ï¿½ï¿½q << "\nconstruction: ";
 //	TIME_COUNT(
-		tree = new APTree(vocab, query, f, ¦Èq)
+		tree = new APTree(vocab, query, f, ï¿½ï¿½q)
 		;
 //			, 1, milliseconds);
 
