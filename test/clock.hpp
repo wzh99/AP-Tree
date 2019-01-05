@@ -5,7 +5,7 @@
 
 #define TIME_COUNT(code, ite, duration)  { \
     Clock clock; \
-    for (int i = 0; i < ite; i++) code; \
+    for (int count = 0; count < ite; count++) code; \
     std::cout << clock.count<std::chrono::duration>() / ite << std::endl; }
 
 class Clock {

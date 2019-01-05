@@ -3,27 +3,76 @@
 #include <set>
 #include <ctime>
 #include "../include/aptree.hpp"
+#include "clock.hpp"
 
 using namespace std;
 void generateTestData(int querySize, int queryNumber, int objectSize, int objectNumber, int vocabSize,
+					  double maxQueryEdge, double minQueryEdge,
 					  vector<Query> &query, vector<STObject> &object, vector<string> &vocab);
+void varyDataParameters(int querySize, int queryNumber, double maxQueryEdge, double minQueryEdge);
+void varyConstructParameters(int f, int θq);
+
+//test内容： number of queries 1000~5000,构建时间，以及单个object的match时间的变化
+			//query面积的影响；
+			//query关键词量的影响；
 
 int main()
 {
+	//effect of f
+	cout << "f:\n";
+	//varyConstructParameters(16, 10);
+	//for (int varyF = 10; varyF <= 100; varyF+=10)
+	//	varyConstructParameters(varyF, 10);
+
+	//effect of θq
+	cout << "θq:\n";
+	for (int varyθq = 10; varyθq < 300; varyθq += 10) varyConstructParameters(16, varyθq);
+}
+
+void varyConstructParameters(int f, int θq) {
 	vector<Query> query;
 	vector<STObject> object;
 	vector<string> vocab;
 
-	srand(time(NULL));
-	generateTestData(4, 4000, 7, 2000, 4000, query, object, vocab);
+	generateTestData(3, 2000, 7, 2000, 1000, 0.1, 0.01, query, object, vocab);
 
-	APTree tree0(vocab, query, 16, 10);
+	APTree *tree;
+	//cout << "Construction parameters: f:" << f << " θq:" << θq << "\nconstruction: ";
+//	TIME_COUNT(
+		tree = new APTree(vocab, query, f, θq)
+		;
+//			, 1, milliseconds);
 
+	//cout << "match 2000: ";
+	TIME_COUNT(
+		for (int i = 0; i < 2000; i++) tree->Match(object[i])
+			, 1, microseconds);
 
-	//cout << object[0] << "match result:\n" << tree0.Match(object[0]).size();
+	delete tree;
+}
+
+void varyDataParameters(int querySize, int queryNumber, double maxQueryEdge, double minQueryEdge) {
+	vector<Query> query;
+	vector<STObject> object;
+	vector<string> vocab;
+
+	generateTestData(querySize, queryNumber, 7, 20000, 10000, maxQueryEdge, minQueryEdge, query, object, vocab);
+
+	APTree *tree;
+	cout << "Data parameters: querySize:" << querySize << " queryNumber:" << queryNumber 
+		<< " maxQueryEdge:" << maxQueryEdge << " minQueryEdge:" << minQueryEdge << "\nconstruction: ";
+	TIME_COUNT(tree = new APTree(vocab, query, 16, 10), 1, milliseconds);
+
+	cout << "match 20000: ";
+	TIME_COUNT(
+		for (int i = 0; i < 20000; i++) tree->Match(object[i])
+	, 1, microseconds);
+
+	delete tree;
 }
 
 void generateTestData(int querySize, int queryNumber, int objectSize, int objectNumber, int vocabSize, 
+					  double maxQueryEdge, double minQueryEdge, 
 					  vector<Query> &query,  vector<STObject> &object, vector<string> &vocab){
 
 	if (vocabSize > 10000) { cout << "\nVocab Size is too large!"; return; }
@@ -31,7 +80,7 @@ void generateTestData(int querySize, int queryNumber, int objectSize, int object
 	object.clear();
 	query.clear();
 
-	ifstream testDataFile("../../test/NationalFileWordOrdered.txt");
+	ifstream testDataFile("NationalFileWordOrdered.txt");
 	string wordTmp;
 	vector<string> wholeVocabulary;
 	for (int i = 0; i < 10286; i++) {
@@ -75,8 +124,8 @@ void generateTestData(int querySize, int queryNumber, int objectSize, int object
 			queryTmp.keywords.insert(*tmpQuerySet.begin());
 			tmpQuerySet.erase(tmpQuerySet.begin());
 		}
-		double xTraverse = ((double)rand() / (double)RAND_MAX) * 0.9 / 10 + 0.01;
-		double yTraverse = ((double)rand() / (double)RAND_MAX) * 0.9 / 10 + 0.01;
+		double xTraverse = ((double)rand() / (double)RAND_MAX) * (maxQueryEdge - minQueryEdge) + minQueryEdge;
+		double yTraverse = ((double)rand() / (double)RAND_MAX) * (maxQueryEdge - minQueryEdge) + minQueryEdge;
 
 		queryTmp.region.min.x  = ((double)rand() / (double)RAND_MAX) * (1 - xTraverse);
 		queryTmp.region.min.y  = ((double)rand() / (double)RAND_MAX) * (1 - yTraverse);
