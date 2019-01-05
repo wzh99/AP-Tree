@@ -251,6 +251,7 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQry)
     }
 
     // Build keyword or partition node according to computed costs
+	COUT(kwCost) COUT(spCost)
     if (kwCost < spCost) { // keyword partition is chosen
         node->type = Node::KEYWORD;
         node->keyword = std::make_unique<Node::KeywordNode>();
@@ -311,8 +312,10 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
     std::map<size_t, std::vector<QueryNested *>> offsetWordQryMap; // queries related to keywords of current offset
     std::map<size_t, size_t> allWordFreqMap; // frequencies related to keywords of all offsets
     std::vector<QueryNested *> dummy;
+	size_t dictSize = 0;
     for (const auto ptr : subQry) {
         // Count keyword frequencies in all query offsets
+		dictSize += ptr->keywords.size();
         for (auto word : ptr->keywords)
             if (allWordFreqMap.find(word) == allWordFreqMap.end())
                 allWordFreqMap[word] = 1;
@@ -329,10 +332,12 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
             offsetWordQryMap[curWord].push_back(ptr); // count word frequency
         }
     }
+	dictSize /= subQry.size(); // get average keyword size in passed queries.
 
     // Get total frequency of all appearing words
     size_t totalFreq = 0;
     for (const auto &pair : allWordFreqMap) totalFreq += pair.second;
+	totalFreq /= dictSize;
 
     // Convert the word statistic map to vector for random access
     std::vector<std::pair<size_t, std::vector<QueryNested *>>> offsetWordQryVec;
@@ -642,8 +647,10 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
     } else if (node->type == Node::SPATIAL) {
         // Find the cell which covers the location of object
         auto cellIdx = node->spatial->GetCellIndex(obj.location);
-        size_t vecIdx = cellIdx.y + cellIdx.x * node->spatial->nPartY;
-        match(obj, offset, node->spatial->cells[vecIdx].get(), out);
+		if (cellIdx.x != INDEX_NOT_FOUND && cellIdx.y != INDEX_NOT_FOUND) { // index is valid
+			size_t vecIdx = cellIdx.y + cellIdx.x * node->spatial->nPartY;
+			match(obj, offset, node->spatial->cells[vecIdx].get(), out);
+		}
         // Search in dummy cell if it exists
         if (node->dummy.get())
             match(obj, offset, node->dummy.get(), out);
