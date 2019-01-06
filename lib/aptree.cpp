@@ -729,6 +729,7 @@ void APTree::Register(const std::vector<Query> &newQry)
         delete root;
         root = newRoot;
     }
+    // COUT(collectAndMerge(root, std::vector<QueryNested *>()).size())
 }
 
 APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQry)
@@ -767,6 +768,12 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
                 auto cut = node->keyword->Search(q->keywords[node->offset]);
                 if (cut.start != INDEX_NOT_FOUND && cut.end != INDEX_NOT_FOUND)  // cut is valid
                     cutQryMap[cut].push_back(q);
+                else { // current node should be rebuilt because query falls in gap
+                    auto recQry = collectAndMerge(node, newQry);
+                    auto newNode = new Node(*node);
+                    build(newNode, recQry);
+                    return newNode;
+                }
             }
         }
 
@@ -838,6 +845,7 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
         double D_KL = 0;
         for (size_t idx = 0; idx < nPartX * nPartY; idx++) {
             double wOld = node->spatial->nQry[idx], wAdd = cellQryStat[idx].size();
+            if (wOld == 0) continue; // account for empty cells
             double bKL = wOld * std::log10(1.0 + wAdd / wOld);
             D_KL += bKL;
         }
