@@ -205,7 +205,7 @@ APTree::APTree(const std::vector<std::string> &vocab, const std::vector<Query> &
         nestedQueries.push_back({qry.region, std::move(indexVec)});
     }
 
-    // Remove duplicated queries
+    // Remove repeated queries
     std::sort(nestedQueries.begin(), nestedQueries.end());
     auto newEnd = std::unique(nestedQueries.begin(), nestedQueries.end());
     nestedQueries.erase(newEnd, nestedQueries.end());
@@ -299,7 +299,7 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQry)
 
 // Bucket problem for heuristic algorithm
 // Put m queries in n buckets. Suppose buckets have the same capacity, what is the minimum capacity required?
-inline size_t bucketCapacity(size_t m, size_t n) {
+inline static size_t bucketCapacity(size_t m, size_t n) {
     return m % n == 0 ? (m / n) : (m / n + 1);
 }
 
@@ -311,10 +311,10 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
     std::map<size_t, std::vector<QueryNested *>> offsetWordQryMap; // queries related to keywords of current offset
     std::map<size_t, size_t> allWordFreqMap; // frequencies related to keywords of all offsets
     std::vector<QueryNested *> dummy;
-	size_t dictSize = 0;
+    double dictSize = 0;
     for (const auto ptr : subQry) {
         // Count keyword frequencies in all query offsets
-		dictSize += ptr->keywords.size();
+        dictSize += ptr->keywords.size();
         for (auto word : ptr->keywords)
             if (allWordFreqMap.find(word) == allWordFreqMap.end())
                 allWordFreqMap[word] = 1;
@@ -331,12 +331,12 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
             offsetWordQryMap[curWord].push_back(ptr); // count word frequency
         }
     }
-	dictSize /= subQry.size(); // get average keyword size in passed queries.
+    dictSize /= subQry.size(); // get average keyword size in passed queries.
 
     // Get total frequency of all appearing words
     size_t totalFreq = 0;
     for (const auto &pair : allWordFreqMap) totalFreq += pair.second;
-	totalFreq /= dictSize;
+    totalFreq /= dictSize;
 
     // Convert the word statistic map to vector for random access
     std::vector<std::pair<size_t, std::vector<QueryNested *>>> offsetWordQryVec;
@@ -646,10 +646,10 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
     } else if (node->type == Node::SPATIAL) {
         // Find the cell which covers the location of object
         auto cellIdx = node->spatial->GetCellIndex(obj.location);
-		if (cellIdx.x != INDEX_NOT_FOUND && cellIdx.y != INDEX_NOT_FOUND) { // index is valid
-			size_t vecIdx = cellIdx.y + cellIdx.x * node->spatial->nPartY;
-			match(obj, offset, node->spatial->cells[vecIdx].get(), out);
-		}
+        if (cellIdx.x != INDEX_NOT_FOUND && cellIdx.y != INDEX_NOT_FOUND) { // index is valid
+            size_t vecIdx = cellIdx.y + cellIdx.x * node->spatial->nPartY;
+            match(obj, offset, node->spatial->cells[vecIdx].get(), out);
+        }
         // Search in dummy cell if it exists
         if (node->dummy.get())
             match(obj, offset, node->dummy.get(), out);
@@ -658,7 +658,7 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
 
 /*
     Index Maintenance Strategy
-
+    2
     Since index maintenance is just briefly introduced in original paper, it should be elaborated on for practical implementation
 
     Algorithm:
@@ -673,26 +673,26 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
                 build(newNode, subQry)
                 return newNode
         else: # the same for k-node and s-node
-            dmyQry := Find dummy queries in newQry
-            if dmyQry is not empty:
-                if node has dummy:
-                    newDummy := register(dummy, dmyQry)
-                    if newDummy != dummy:
-                        Swap dummy node
-                else:
-                    build(dummy, dmyQry)
-
+            Get statistics of queries
             D_KL := Compute KL-Divergence of new node
             if D_KL > theta_KL:
                 subQry := Merge node.Q and newQry
                 build(newNode, subQry)
                 return newNode
             else:
+                dmyQry := Find dummy queries in newQry
+                    if dmyQry is not empty:
+                        if node has dummy:
+                            newDummy := register(dummy, dmyQry)
+                            if newDummy != dummy:
+                                Reset dummy node
+                        else:
+                            build(dummy, dmyQry)
                 for each bucket:
                     bcktNewQry := Find matched queries in newQry
                     newBucket := register(bucket, bcktNewQry)
                     if newBucket != bucket:
-                        Swap bucket node
+                        Reset bucket node
                 return node
 
     Modification:
@@ -702,17 +702,193 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
 
 */
 
-void APTree::Register(const std::vector<Query> &qry) {
-    auto v = collect(root);
+void APTree::Register(const std::vector<Query> &newQry) 
+{
+    // Convert queries to nested type
+    std::vector<QueryNested> nstdQry;
+    for (const auto q : newQry) {
+        QueryNested nq{ q.region, std::vector<size_t>() };
+        for (const auto kw : q.keywords)
+            nq.keywords.push_back(dictIndex[kw]);
+        nstdQry.push_back(std::move(nq));
+    }
+
+    // Remove repeated queries
+    std::sort(nstdQry.begin(), nstdQry.end());
+    auto newEnd = std::unique(nstdQry.begin(), nstdQry.end());
+    nstdQry.erase(newEnd, nstdQry.end());
+
+    // Get nested query pointers
+    std::vector<QueryNested *> nstdQryPtr;
+    for (auto &q : nstdQry)
+        nstdQryPtr.push_back(&q);
+
+    // Begin registration recursion
+    auto newRoot = regist(root, nstdQryPtr); // the whole tree may be reconstructed
+    if (newRoot != root) {
+        delete root;
+        root = newRoot;
+    }
 }
 
-std::vector<APTree::QueryNested *> APTree::collect(const Node *node) const 
+APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQry)
+{
+    if (node->type == Node::QUERY) {
+        auto &query = node->query->queries;
+        size_t newSize = query.size() + newQry.size();
+
+        if (newSize < theta_Q || (!node->useKw && !node->useSp)) { // keep q-node structure
+            // Append new queries to q-node
+            for (const auto q : newQry)
+                query.push_back(*q);
+            // Remove repeated queries
+            std::sort(query.begin(), query.end());
+            auto newEnd = std::unique(query.begin(), query.end());
+            query.erase(newEnd, query.end());
+            return node; // not reconstructed
+        }
+        else { // should reconstruct
+            auto recQry = collectAndMerge(node, newQry);
+            auto newNode = new Node(*node);
+            build(newNode, recQry);
+            return newNode;
+        }
+    }
+    else if (node->type == Node::KEYWORD) {
+        // Get statistics of newly added queries
+        std::vector<QueryNested *> dmyQry;
+        std::map<KeywordCut, std::vector<QueryNested *>> cutQryMap;
+        for (const auto &pair : node->keyword->children) // initialize stat map
+            cutQryMap[pair.first] = std::vector<QueryNested *>();
+        for (const auto q : newQry) {
+            if (q->keywords.size() <= node->offset) // is dummy query
+                dmyQry.push_back(q);
+            else {
+                auto cut = node->keyword->Search(q->keywords[node->offset]);
+                if (cut.start != INDEX_NOT_FOUND && cut.end != INDEX_NOT_FOUND)  // cut is valid
+                    cutQryMap[cut].push_back(q);
+            }
+        }
+
+        // Compute KL-Divergence D_KL(w_old|w) of current node
+        // See https://en.wikipedia.org/wiki/Kullback-Leibler_divergence for definition of KL-Divergence
+        // D_KL(P|Q) = \sum_{x\in X} P(x)*log(P(x)/Q(x))
+        // In terms of AP-Tree, D_KL(w_old|w) = \sum_{i=1}^f w_old(B_i)*log(w_old(B_i)/w(B_i))
+        double D_KL = 0;
+        for (const auto &pair : node->keyword->nQry) {
+            double wOld = pair.second, wAdd = cutQryMap[pair.first].size();
+            double bKL = wOld * std::log10(1.0 + wAdd / wOld);
+            D_KL += bKL;
+        }
+
+        if (D_KL > theta_KL) {
+            // Reconstruct node if D_KL exceeds threshold theta_KL
+            auto recQry = collectAndMerge(node, newQry);
+            auto newNode = new Node(*node);
+            build(newNode, recQry);
+            return newNode;
+        }
+        else { 
+            // Keep current node but modify it
+            // Build dummy node if possible
+            if (dmyQry.size() > 0) {
+                if (node->dummy.get()) { // previous node has dummy cut
+                    auto newDmyNode = regist(node->dummy.get(), dmyQry);
+                    if (newDmyNode != node->dummy.get())
+                        node->dummy.reset(newDmyNode);
+;               }
+                else {
+                    node->dummy = std::make_unique<Node>(node->offset + 1, node->bound, false, node->useSp);
+                    build(node->dummy.get(), dmyQry);
+                }
+            }
+
+            // Distribute queries to corresponding cuts
+            for (auto &pair : node->keyword->children) {
+                auto cutNewQry = cutQryMap[pair.first];
+                auto newNode = regist(pair.second.get(), cutNewQry);
+                if (newNode != pair.second.get()) 
+                    pair.second.reset(newNode);
+            }
+
+            return node;
+        }
+    }
+    else {
+        // Get statistics of newly added queries
+        size_t nPartX = node->spatial->nPartX, nPartY = node->spatial->nPartY;
+        std::vector<QueryNested *> dmyQry;
+        auto cellQryStat = std::make_unique<std::vector<QueryNested *>[]>(nPartX * nPartY);
+        for (size_t idx = 0; idx < nPartX * nPartY; idx++)
+            cellQryStat[idx] = std::vector<QueryNested *>();
+        for (const auto qry : newQry) {
+            // Pick out dummy query
+            if (qry->region.Contains(node->bound))
+                dmyQry.push_back(qry);
+            // Add query to overlapping cell
+            for (size_t i = 0; i < nPartX; i++)
+                for (size_t j = 0; j < nPartY; j++) {
+                    size_t idx = j + i * nPartY;
+                    if (qry->region.Overlaps(node->spatial->cells[idx]->bound))
+                        cellQryStat[idx].push_back(qry);
+                }
+        }
+
+        // Compute KL-Divergence of current node
+        double D_KL = 0;
+        for (size_t idx = 0; idx < nPartX * nPartY; idx++) {
+            double wOld = node->spatial->nQry[idx], wAdd = cellQryStat[idx].size();
+            double bKL = wOld * std::log10(1.0 + wAdd / wOld);
+            D_KL += bKL;
+        }
+
+        if (D_KL > theta_KL) {
+            // Reconstruct current node
+            auto recQry = collectAndMerge(node, newQry);
+            auto newNode = new Node(*node);
+            build(newNode, recQry);
+            return newNode;
+        }
+        else {
+            // Keep current node
+            // Build dummy node if possible
+            if (dmyQry.size() > 0) {
+                if (node->dummy.get()) {
+                    auto newDmyNode = regist(node->dummy.get(), dmyQry);
+                    if (newDmyNode != node->dummy.get())
+                        node->dummy.reset(newDmyNode);
+                }
+                else {
+                    node->dummy = std::make_unique<Node>(node->offset, node->bound, node->useKw, false);
+                    build(node->dummy.get(), dmyQry);
+                }
+            }
+
+            // Distribute queries to corresponding cells
+            for (size_t idx = 0; idx < nPartX * nPartY; idx++) {
+                auto cellNewQry = cellQryStat[idx];
+                auto newNode = regist(node->spatial->cells[idx].get(), cellNewQry);
+                if (newNode != node->spatial->cells[idx].get())
+                    node->spatial->cells[idx].reset(newNode);
+            }
+
+            return node;
+        }
+    }
+}
+
+// Only collect query pointers for selected node, and merge with newly added ones.
+// The actual value is fetched only when q-node is constructed.
+std::vector<APTree::QueryNested *> APTree::collectAndMerge(const Node *node, const std::vector<QueryNested *> &newQry) const 
 {
     // Begin collecting recursion
     std::vector<QueryNested *> out;
     collect(node, out);
+
+    // Merge newly added queries
+    out.insert(out.end(), newQry.begin(), newQry.end());
     
-    // Remove duplicated elements
+    // Remove repeated elements
     std::sort(out.begin(), out.end(), [](auto p1, auto p2) { return *p1 < *p2; });
     auto newEnd = std::unique(out.begin(), out.end(), [](auto p1, auto p2) { return *p1 == *p2; });
     out.erase(newEnd, out.end());

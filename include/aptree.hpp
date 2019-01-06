@@ -37,6 +37,6 @@ private:
 
 	// Query registration methods
 	Node * regist(Node *node, const std::vector<QueryNested *> &newQry);
-	std::vector<QueryNested *> collect(const Node *node) const;
+	std::vector<QueryNested *> collectAndMerge(const Node *node, const std::vector<QueryNested *> &newQry) const;
 	void collect(const Node *node, std::vector<QueryNested *> &out) const;
 };
