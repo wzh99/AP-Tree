@@ -10,7 +10,7 @@ static constexpr auto INDEX_NOT_FOUND = std::numeric_limits<size_t>::max();
 
 // For indicating range of space or keyword
 template <class Type>
-static size_t rangeSearch(const std::vector<Type> &ranges, const Type target) {
+static size_t rangeSearch(const std::vector<Type> &ranges, const Type target) noexcept {
     size_t start = 0, end = ranges.size() - 1, mid = (start + end) / 2;
     if (target < ranges[start] || target >= ranges[end]) 
         return INDEX_NOT_FOUND; // can't be in any range
@@ -34,7 +34,7 @@ static size_t rangeSearch(const std::vector<Type> &ranges, const Type target) {
 
 // For verifying selected queries, elements in two input vector must be sorted
 template <class Type>
-static bool isSubset(const std::vector<Type> &super, const std::vector<Type> &sub) {
+static bool isSubset(const std::vector<Type> &super, const std::vector<Type> &sub) noexcept {
     auto superIte = super.begin(), subIte = sub.begin();
     while (subIte != sub.end()) {
         if (superIte == super.end()) return false;
@@ -52,7 +52,7 @@ static bool isSubset(const std::vector<Type> &super, const std::vector<Type> &su
 
 // For selecting common queries from two ranges in corresponding axis
 template <class Type>
-static std::vector<Type> commonElements(const std::set<Type> &v1, const std::set<Type> &v2) {
+static std::vector<Type> commonElements(const std::set<Type> &v1, const std::set<Type> &v2) noexcept {
     std::vector<Type> common;
     if (v1.size() == 0 || v2.size() == 0) return common;
     auto ite1 = v1.begin(), ite2 = v2.begin();
@@ -134,7 +134,7 @@ struct APTree::Node {
 
         // Find corresponding cut based on object keywords
         // The algorithm is similar to rangeSearch(), but deals with keyword cuts instead of ranges
-        KeywordCut Search(size_t target) const {
+        KeywordCut Search(size_t target) const noexcept {
             size_t start = 0, end = cuts.size() - 1, mid = (start + end) / 2;
             if (target < cuts[start].start || target > cuts[end].end)
                 return {INDEX_NOT_FOUND, INDEX_NOT_FOUND}; // can't be in any cut
@@ -169,7 +169,7 @@ struct APTree::Node {
         std::unique_ptr<std::unique_ptr<Node>[]> cells; // 1D vector of m * n cells [0 ... m-1][0 ... n-1]
         std::unique_ptr<size_t[]> nQry;
 
-        Pointu GetCellIndex(const Pointf &pt) const {
+        Pointu GetCellIndex(const Pointf &pt) const noexcept {
             size_t ix = rangeSearch(partX, pt.x);
             size_t iy = rangeSearch(partY, pt.y);
             return {ix, iy};
@@ -299,7 +299,7 @@ void APTree::build(Node *node, const std::vector<QueryNested *> &subQry)
 
 // Bucket problem for heuristic algorithm
 // Put m queries in n buckets. Suppose buckets have the same capacity, what is the minimum capacity required?
-inline static size_t bucketCapacity(size_t m, size_t n) {
+inline static size_t bucketCapacity(size_t m, size_t n) noexcept {
     return m % n == 0 ? (m / n) : (m / n + 1);
 }
 
@@ -334,8 +334,8 @@ APTree::KeywordPartition APTree::keywordHeuristic(const std::vector<QueryNested 
     dictSize /= subQry.size(); // get average keyword size in passed queries.
 
     // Get total frequency of all appearing words
-    size_t totalFreq = 0;
-    for (const auto &pair : allWordFreqMap) totalFreq += pair.second;
+    double totalFreq = 0;
+    for (const auto &pair : allWordFreqMap) totalFreq += double(pair.second);
     totalFreq /= dictSize;
 
     // Convert the word statistic map to vector for random access
@@ -658,7 +658,6 @@ void APTree::match(const STObjectNested &obj, size_t offset, const Node *node, s
 
 /*
     Index Maintenance Strategy
-    2
     Since index maintenance is just briefly introduced in original paper, it should be elaborated on for practical implementation
 
     Algorithm:
@@ -833,12 +832,9 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
             if (qry->region.Contains(node->bound))
                 dmyQry.push_back(qry);
             // Add query to overlapping cell
-            for (size_t i = 0; i < nPartX; i++)
-                for (size_t j = 0; j < nPartY; j++) {
-                    size_t idx = j + i * nPartY;
-                    if (qry->region.Overlaps(node->spatial->cells[idx]->bound))
-                        cellQryStat[idx].push_back(qry);
-                }
+            for (size_t idx = 0; idx < nPartX * nPartY; idx++)
+                if (qry->region.Overlaps(node->spatial->cells[idx]->bound))
+                    cellQryStat[idx].push_back(qry);
         }
 
         // Compute KL-Divergence of current node
@@ -887,7 +883,7 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
 
 // Only collect query pointers for selected node, and merge with newly added ones.
 // The actual value is fetched only when q-node is constructed.
-std::vector<APTree::QueryNested *> APTree::collectAndMerge(const Node *node, const std::vector<QueryNested *> &newQry) const 
+std::vector<APTree::QueryNested *> APTree::collectAndMerge(const Node *node, const std::vector<QueryNested *> &newQry) const
 {
     // Begin collecting recursion
     std::vector<QueryNested *> out;
@@ -904,7 +900,7 @@ std::vector<APTree::QueryNested *> APTree::collectAndMerge(const Node *node, con
     return out;
 }
 
-void APTree::collect(const Node *node, std::vector<QueryNested *> &out) const 
+void APTree::collect(const Node *node, std::vector<QueryNested *> &out) const
 {
     if (node->type == Node::QUERY) {
         auto &queries = node->query->queries;
@@ -921,10 +917,7 @@ void APTree::collect(const Node *node, std::vector<QueryNested *> &out) const
     else if (node->type == Node::SPATIAL) {
         if (node->dummy.get())
             collect(node->dummy.get(), out);
-        for (size_t i = 0; i < node->spatial->nPartX; i++)
-            for (size_t j = 0; j < node->spatial->nPartY; j++) {
-                size_t idx = j + i * node->spatial->nPartY;
-                collect(node->spatial->cells[idx].get(), out);
-            }
+        for (size_t idx = 0; idx < node->spatial->nPartX * node->spatial->nPartY; idx++)
+            collect(node->spatial->cells[idx].get(), out);
     }
 }

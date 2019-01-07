@@ -19,12 +19,9 @@ struct Point {
     Point(const Point<OtherType> &pt) : x(pt.x), y(pt.y) {}
 
     PointType & operator = (const PointType &pt) { x = pt.x; y = pt.y; return *this; }
-    PointType operator + (const PointType &pt) const { return {x + pt.x, y + pt.y}; }
-    PointType operator - (const PointType &pt) const { return (x - pt.x, y - pt.y); }
-    PointType operator * (Type c) const { return {c * x, c * y}; }
 
-    bool operator == (const PointType &pt) const { return x == pt.x && y == pt.y; }
-    bool operator != (const PointType &pt) const { return !(pt == *this); }
+    bool operator == (const PointType &pt) const noexcept { return x == pt.x && y == pt.y; }
+    bool operator != (const PointType &pt) const noexcept { return !(pt == *this); }
 };
 
 template <class Type>
@@ -50,18 +47,18 @@ struct Bound {
     }
     Bound(const BoundType &bd) : min(bd.min), max(bd.max) {}
 
-    bool operator == (const BoundType &bd) const { return min == bd.min && max == bd.max; }
-    bool operator != (const BoundType &bd) const { return !(bd == *this); }
+    bool operator == (const BoundType &bd) const noexcept { return min == bd.min && max == bd.max; }
+    bool operator != (const BoundType &bd) const noexcept { return !(bd == *this); }
 
-    bool Contains(const PointType &pt) const {
+    bool Contains(const PointType &pt) const noexcept {
         return pt.x > min.x && pt.y > min.y && pt.x < max.x && pt.y < max.y;
     }
 
-    bool Contains(const BoundType &bd) const {
+    bool Contains(const BoundType &bd) const noexcept {
         return bd.min.x > min.x && bd.min.y > min.y && bd.max.x < max.x && bd.max.y < max.y;
     }
 
-    bool Overlaps(const BoundType &bd) const {
+    bool Overlaps(const BoundType &bd) const noexcept {
         return !(bd.min.x >= max.x || bd.min.y >= max.y || bd.max.x <= min.x || bd.max.y <= min.y);
     }
 
