@@ -1,5 +1,6 @@
 \documentclass[UTF8]{ctexart}
 
+\usepackage[ruled]{algorithm2e}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{appendix}
@@ -8,6 +9,7 @@
 \usepackage{fontspec}
 \usepackage{geometry}
 \usepackage{graphicx}
+\usepackage{setspace}
 \usepackage{subfigure}
 \usepackage{url}
 \usepackage{xeCJK}
@@ -49,7 +51,7 @@ AP树还提供了建立索引的方法。使用两个标志$kP$和$sP$来表示�
 \subsection{接口设计}
 首先定义所涉及的两个结构体：空间文本对象\texttt{STObject}以及查询项\texttt{Query}。\texttt{STObject}有两个成员：\texttt{Pointf}类型的位置\texttt{location}以及\texttt{std::set<std::string>}类型的关键词集合\texttt{keywords}。\texttt{STObject}也有两个成员：\texttt{Boundf}类型的方形区域\texttt{region}和\texttt{std::set<std::string>}类型的关键词集合\texttt{keywords}，其中\texttt{Boundf}为由两个\texttt{Pointf}确定的轴对齐包围区域。类的使用者需要通过这两个结构来和类进行交互。
 
-本文所实现的AP树，是一种空间文本分割树，定义抽象的空间文本分割树类\texttt{STTree}，其有一个纯虚函数\texttt{std::vector<Query> Match(const STObject \&) const}。用户通过输入\texttt{STObject}，可获得查询项，存放于一个\texttt{std::vector}中。AP树类\texttt{APTree}继承自\texttt{STTree}。\texttt{APTree}的构造函数声明为\texttt{APTree(const std::vector<std::string> \&vocab, const std::vector<Query> \&queries, \\size\_t nCuts, size\_t threshold)}，其中\texttt{vocab}为所有的关键词，\texttt{queries}为需要注册的查询项，\texttt{nCuts}即论文中的$f$，为每个k-node或s-node的建议分割数目，\texttt{threshold}即论文中的$\theta_q$，为每个q-node的最大查询项容量。
+本文所实现的AP树，是一种空间文本分割树，定义抽象的空间文本分割树类\texttt{STTree}，其有两个纯虚函数\texttt{std::vector<Query> Match(const STObject \&) const}和\texttt{void Register(const \\std::vector<Query> \&)}。AP树类\texttt{APTree}继承自\texttt{STTree}。\texttt{APTree}的构造函数声明为\texttt{APTree(const std::vector<std::string> \&vocab, const std::vector<Query> \&queries, size\_t f, size\_t theta\_Q, size\_t theta\_KL)}，其中\texttt{vocab}为所有的关键词，\texttt{queries}为需要注册的查询项，\texttt{f}、\texttt{theta\_Q}和\texttt{theta\_KL}均为论文中明确给出的参数。
 
 \subsection{存储实现}
 由于AP树存储的数据体量大，树的构建和查询算法较为复杂，为了能够发挥AP树的优势，在内部存储方式的实现上需要一定的构思。
@@ -58,18 +60,78 @@ AP树还提供了建立索引的方法。使用两个标志$kP$和$sP$来表示�
 
 然后介绍关键词分割方案和空间分割方案的存储表示。关键词分割方案用\texttt{KeywordPartition}结构体表示，其成员包括：类型为\texttt{std::vector<KeywordCut>}的分割序列\texttt{cuts}，其中\texttt{KeywordCut}为关键词序号的闭区间；类型为\texttt{std::map<KeywordCut, std::vector<QueryNested *>>}的查询项查找表\texttt{queries}，用来表示每个关键词闭区间对应哪些查询项，注意到这里使用的是\texttt{QueryNested}的指针类型，这是为了节约运行时内存占用，避免\texttt{QueryNested}的多次复制；类型为\texttt{std::vector<QueryNested *>}的dummy cut表\texttt{dummy}；还有一个表示该分割方案代价的浮点数\texttt{cost}。空间分割方案用\\\texttt{SpatialPartition}结构体表示，其成员包括：类型为\texttt{size\_t}，在X、Y轴上个各自的分割数目\texttt{nPartX}、\texttt{nPartY}；类型为\texttt{std::vector<double>}的分割位置\texttt{partX}，\texttt{partY}，注意这两个\texttt{std::vector}的\texttt{size()}各自比\texttt{nPartX}，\texttt{nPartY}多一个，为了代码清晰，不使用它们的\texttt{size()}信息；类型为\\\texttt{std::unique\_ptr<std::vector<QueryNested *>>}的单元格查询项序列\texttt{cells}，注意这是一个一维的数组，一个二维的单元格索引需要通过运算转为一维的数组索引；剩下的\texttt{dummy}和\texttt{cost}与\texttt{KeywordPartition}相同，不作赘述。
 
-最后介绍AP树的结点类型\texttt{Node}，由于AP树有三种结点类型，而每个结点的子节点的类型父节点是不清楚的，这里使用一个\texttt{NodeType}枚举来标记每个子节点的类型；同时每个结点需要存储结点的区域\texttt{bound}。对于三种结点各自的信息，定义了\texttt{Node}的内部结构体来储存。为了节约结点空间，使用\texttt{std::unique\_ptr}来实现较为灵活的管理，默认状况下为\texttt{nullptr}，当结点信息完备时，再根据结点类型动态地分配相应的存储空间。q-node类型\texttt{QueryNode}内只需要存储一个\texttt{std::vector<QueryNested>}即可；k-node类型\texttt{KeywordNode}和s-node类型\texttt{SpatialNode}的成员分别与\texttt{KeywordPartition}和\texttt{SpatialPartition}成员类似，不同之处在于\texttt{KeywordNode}和\texttt{SpatialNode}内不需要存储\texttt{cost}信息，且各自的查找表内存储的是\texttt{std::unique\_ptr<Node>}的数组，而非\texttt{QueryNested *}；由于k-node和s-node内共有dummy cut，考虑将其放在\texttt{Node}的一个\texttt{std::unique\_ptr}中，避免重复定义。这样一来，\texttt{APTree}析构的时候所有内存空间可以自动回收，不需要手动\texttt{delete}，也不会造成内存泄漏。
+最后介绍AP树的结点类型\texttt{Node}，由于AP树有三种结点类型，而每个结点的子节点的类型父节点是不清楚的，这里使用一个\texttt{NodeType}枚举来标记每个子节点的类型。同时每个结点需要存储结点的关键词偏置\texttt{offset}、区域\texttt{bound}，以及是否从关键词和空间信息来划分结点\texttt{useKw}、\texttt{useSp}。对于三种结点各自的信息，定义了\texttt{Node}的内部结构体来储存。为了节约结点空间，使用\texttt{std::unique\_ptr}来实现较为灵活的管理，默认状况下为\texttt{nullptr}，当结点信息完备时，再根据结点类型动态地分配相应的存储空间。q-node类型\texttt{QueryNode}内只需要存储一个\texttt{std::vector<QueryNested>}即可。k-node类型\texttt{KeywordNode}和s-node类型\texttt{SpatialNode}的成员分别与\texttt{KeywordPartition}和\texttt{SpatialPartition}成员类似，不同之处在于：\texttt{KeywordNode}和\texttt{SpatialNode}内不需要存储\texttt{cost}信息，各自的查找表内存储的是\texttt{std::unique\_ptr<Node>}的数组，而非\texttt{QueryNested *}。同时\texttt{KeywordNode}和\texttt{SpatialNode}还存有各自所包含的查询项个数\texttt{nQry}，便于重构时计算KL散度。由于k-node和s-node内共有dummy cut，考虑将其放在\texttt{Node}的一个\texttt{std::unique\_ptr}中，避免重复定义。这样一来，\texttt{APTree}析构的时候所有内存空间可以自动回收，不需要手动\texttt{delete}，也不会造成内存泄漏。
 
 \subsection{运算实现}
-AP树的相关算法基本根据原论文所给的伪代码来实现，以下的介绍只作大致思路的梳理和部分要点的提示。
+AP树的构建和查询算法基本根据原论文所给的伪代码来实现，以下的介绍只作大致思路的梳理和部分要点的提示。
 
-在构造函数里，首先根据参数\texttt{vocab}将\texttt{Query}转成\texttt{QueryNested}，并取址，建立\texttt{std::vector <QueryNode *>}，然后从根节点开始调用私有\texttt{build}函数。在\texttt{build}函数内，若当前结点判定为q-node，则将传入的\texttt{std::vector<QueryNode *>}内的指针全部取值储存在\texttt{Node::QueryNode}中；不然则调用私有的\texttt{keywordHeuristic}和\texttt{spatialHeuristic}尝试关键词和空间分割，取代价小的分割方式确定节点类型，将相关信息赋予结点，继续下一层递归。要注意，\texttt{Node}的内存空间要在主调用的\texttt{build}函数内分配，其成员的数据在被调用的\texttt{build}函数内赋给。
+在构造函数里，首先根据参数\texttt{vocab}将\texttt{Query}转成\texttt{QueryNested}，并取址，建立\texttt{std::vector <QueryNode *>}，然后从根节点开始调用私有\texttt{build}函数。在\texttt{build}函数内，若当前结点判定为q-node，则将传入的\texttt{std::vector<QueryNode *>}内的指针全部取值储存在\texttt{Node::QueryNode}中；不然则调用私有的\texttt{keywordHeuristic}和\texttt{spatialHeuristic}尝试关键词和空间分割，取代价小的分割方式确定节点类型，将相关信息赋予结点，继续下一层递归。和原论文中算法不同之处在于，$l$、$kP$和$sP$是作为\texttt{Node}的成员来传递的，而非通过函数的实参传递，这是为了便于动态重构。要注意，\texttt{Node}的内存空间要在主调用的\texttt{build}函数内分配，其构造的提示信息\texttt{offset}、\texttt{bound}、\texttt{useKw}和\texttt{useSp}也要在\texttt{Node}构造时赋值；其成员的具体类型，以及每种类型下的数据，要在被调用的\texttt{build}函数内分配和赋值。
 
-下面介绍一下\texttt{keywordHeuristic}和\texttt{spatialHeuristic}内的实现。由于它们均为启发式算法，有相似的思路。首先，对传入的查询项进行\textbf{统计}，关键词分割时分别统计当前offset以及所有offset的词频，空间分割时统计边界位置。然后，对统计的对象进行\textbf{均分}，关键词分割时均分关键词到每个cut，空间分割时均分边界到每个cell。接着尝试改变划分的边界，找到局部最优的划分，\textbf{改善}整体的代价。最后，利用找到的最佳划分，将查询项\textbf{分配}到每个cut或者cell内，算法结束。
+下面介绍\texttt{keywordHeuristic}和\texttt{spatialHeuristic}内的实现。由于它们均为启发式算法，有相似的思路。首先，对传入的查询项进行\textbf{统计}，关键词分割时分别统计当前offset以及所有offset的词频，空间分割时统计边界位置。然后，对统计的对象进行\textbf{均分}，关键词分割时均分关键词到每个cut，空间分割时均分边界到每个cell。接着尝试改变划分的边界，找到局部最优的划分，\textbf{改善}整体的代价。最后，利用找到的最佳划分，将查询项\textbf{分配}到每个cut或者cell内，算法结束。
 
 在\texttt{Match}函数内，首先将\texttt{STObject}转成\texttt{STObjectNested}，调用私有的\texttt{match}函数进行匹配，匹配算法完全按照论文中的伪代码实现。将得到的\texttt{std::set}内的\texttt{QueryNested}转成\texttt{Query}，返回给类的使用者。
 
-最后介绍三个和容器中有序元素相关的工具函数：\texttt{commonElements}能够寻找两个容器中的相同的元素，对于大小为$m$和$n$的两个容器，以$O(m+n)$的时间复杂度找到相同元素，主要用于\texttt{spatialHeuristic}中寻找两个坐标轴上特定范围内的查询项的交集。\texttt{isSubset}能够判断一个容器中的元素组成的集合是否是另一个容器中元素集合的子集，同样可以达到$O(m+n)$的时间复杂度，主要用于验证\texttt{QueryNested}和\texttt{STObjectNested}关键词之间的包含关系。\texttt{rangeSearch}用查询某个类型为\texttt{Type}的值，在一个用有序数组\texttt{std::vector<Type>}表示的若干首尾相接区间左端点中的索引。该算法类似二分查找，不过验证的是区间和值的包含关系，而非值的相等关系，主要用在查找某个点在q-node中所对应的cell的二维索引。\texttt{Node::KeywordNode}中的\texttt{Search}成员函数和\texttt{rangeSearch}行为类似，不过其针对的区间\texttt{KeywordCut}不保证首尾相接。
+\subsection{查询项维护}
+\texttt{APTree}还实现了查询项的动态注册。原文中只对其做了简单的介绍，没有进行详细的阐述。本文尝试给出其完整的算法伪代码，并对其中的重点问题进行探讨。
+
+\begin{spacing}{1.0}
+\begin{algorithm}[H]
+\caption{动态注册查询项}
+\LinesNumbered
+\KwIn{结点$N$，新增查询项$Q$}
+\KwOut{新结点$N'$}
+\eIf{$N$为q-node}{
+    \eIf{$|N.Q.\psi|+|Q.\psi|<\theta_q$}{
+        $N.Q\leftarrow$归并$N.Q$和$Q$ \\
+        返回$N$
+    }{
+        $Q'\leftarrow$归并$N.Q$和$Q$ \\
+        构建索引($N'$, $Q'$) \\
+        返回$N'$
+    }
+}{
+    统计$Q$的信息 \\
+    $D_{KL}\leftarrow$计算KL散度 \\
+    \eIf{$D_{KL}>\theta_{KL}$}{
+        $Q'\leftarrow$归并$N.Q$和$Q$ \\
+        构建索引($N'$, $Q'$) \\
+        返回$N'$
+    }{
+        $Q_D\leftarrow$ 寻找$Q$中的dummy查询项 \\
+        \If{$Q_D$非空}{
+            \eIf{$N$有dummy cut/cell $N_D$}{
+                $N_D'\leftarrow$注册($N_D$, $Q_D$) \\
+                重置$N$的dummy结点为$N_D'$
+            }{
+                构建索引($N_D$, $Q_D$)
+            }
+        }
+        \ForEach{$N$中分割$B_i$}{
+            $Q_{B_i}\leftarrow$在$Q$中寻找匹配$B_i$的查询项 \\
+            $N_{B_i}'\leftarrow$注册($N_{B_i}$, $Q_{B_i}$) \\
+            重置$N_{B_i}$的结点为$N_{B_i}'$
+        }
+        返回$N$
+    }
+}
+\end{algorithm}
+\end{spacing}
+
+动态注册查询项的算法如上述伪代码所示。由于现有的函数已经能够根据一个结点的初始信息和待构建的查询项构建一棵子树，该算法主要解决的是一个结点要不要重构，以及重构后如何让父结点指向重构后的结点的问题。
+
+首先要回答的是要不要重构的问题。原论文中，作者提到要用分割的KL散度$D_{KL}(\textbf{w}_{old}|\textbf{w})$是否超过阈值$\theta_{KL}$来判断。对于定义在相同概率空间上的离散概率分布$P$和$Q$，它们的KL散度定义为
+\[D_{KL}(P|Q)=-\sum_{x\in X} P(x)\mathrm{log}(\frac{Q(x)}{P(x)})\]
+在AP树的理论中，对每个结点的分割$B$，则有
+\[D_{KL}(\textbf{w}_{old}|\textbf{w})=-\sum_{i=1}^f \textbf{w}_{old}(B_i) \mathrm{log}(\frac{\textbf{w}(B_i)}{\textbf{w}_{old}(B_i)})\]
+实际实现中，要对上述公式变形。注意到分割$B_i$的新权值（即查询项数目）为原先的权值和新增权值之和$\textbf{w}(B_i)=\textbf{w}_{old}(B_i)+\textbf{w}_{add}(B_i)$。取上式的绝对值，并将$\textbf{w}(B_i)$的表达式代入，可得 
+\[\begin{split}|D_{KL}(\textbf{w}_{old}|\textbf{w})| 
+&= \sum_{i=1}^f \textbf{w}_{old}(B_i) \mathrm{log}(\frac{\textbf{w}_{old}(B_i) + \textbf{w}_{add}(B_i)}{\textbf{w}_{old}(B_i)}) \\
+&= \sum_{i=1}^f \textbf{w}_{old}(B_i)\mathrm{log}(1 + \frac{\textbf{w}_{add}(B_i)}{\textbf{w}_{old}(B_i)}) \end{split}\] 
+在上述公式中，在$\textbf{w}_{old}{B_i}$确定的情况下，如果$\textbf{w}_{add}(B_i)$越大，$|D_{KL}(\textbf{w}_{old}|\textbf{w})|$就会越大，那么该结点就更有可能被重构，这是符合我们计算KL散度的目的的。
+
+然后解决如何重构后父子结点关联的问题。这里利用动态注册函数能够返回一个新的节点指针来实现：如果节点需要重构，则返回重构和新的结点的指针，否则则返回原子结点的指针。在父结点的注册函数中，如果发现子结点的注册函数返回了和之前子结点不同的指针，则更新新的子结点指针，否则则保持原指针。
+
+在具体实现中，为了节省内存占用，传入注册函数的$Q$实际上是\texttt{const std::vector<QueryNested *> \&}，该算法一定能保证存储新的查询项时，这些指针都能顺利取值。原因要从\texttt{Node}和\texttt{QueryNested}的生命周期来找。将\texttt{QueryNested}的指针“落实”为实际的值只有两种途径：一是动态注册函数里将$N.Q$和$Q$归并，二是在构建索引函数里将$Q$存进q-node。根据上述算法，这两个动作均发生在重置结点之前。那么在执行重置子结点之前，可以保证原先的子树保持原样，而新的子树已经建立完毕。这样只要调用\texttt{std::unique\_ptr}里的\texttt{reset}方法，即可将原先的子树完全析构，并指向新的子结点。
 
 \section{性能测试}
 
@@ -78,7 +140,7 @@ AP树的相关算法基本根据原论文所给的伪代码来实现，以下的
 \subsection{优势}
 原论文中也提了几种其他用于解决类似问题的结构，如$\mathrm{R^t}$树和IQ树。它们有一个共通点：无论查询项中关键词和空间信息有何特点，在建立索引时空间因素始终优先于关键词因素。相比而言，AP树有以下几点优势：
 \begin{enumerate}
-    \item AP树在处理不同的数据集时匹配对象的速度快。因为对有些数据集来说关键词和空间两种匹配模式的效率差别很大，AP树可以很好地利用它的自适应性选择最优的匹配算法。
+    \item AP树在处理不同的数据集时匹配对象的速度快。因为对有些数据集来说关键词和空间两种匹配模式的效率差别很大，AP树可以很好地利用它的自适应性选择最优的匹配方式。
     \item 当AP树应对较多查询项时，依然能保证较高的效率。
     \item AP树可以自动维护它的结构。当工作量发生变化时，它可以根据阈值重构自己的结点，体现出它的自适应性。
 \end{enumerate}
@@ -86,14 +148,14 @@ AP树的相关算法基本根据原论文所给的伪代码来实现，以下的
 \subsection{不足}
 \begin{enumerate}
     \item AP树对于空间的需求量较大。在存储实现中可以看到，尽管对于结点的存储方案已经做了一定优化，但是单个结点占用空间依然较大。在树的构建过程中，每一层递归都需要储存对应结点查询项的统计信息。当查询项的总数较大时，势必造成内存占用的激增。在我们的测试中，在注册了5000个查询项后，内存占用就超过了90MB。如果是实际应用中上百万的查询项，其内存占用是相当巨大的。
-    \item AP树的构造较为复杂。AP树由于要对两种分割模式进行混合，要实现它就必须要比其它单模式的分割树付出多一倍以上的工作量。本项目关于\texttt{APTree}的实现代码，仅仅实现了AP树最基础的功能，还不包括查询项的维护，就已有六百余行。如果要将它整合到一个可实际应用的数据库系统中的话，其工作量是可想而知的，这显然不利于一个数据库系统的维护、更新和迭代。
+    \item AP树的构造较为复杂，建树的耗时较长。AP树由于要对两种分割模式进行混合，就要比其它分割树多消耗一倍以上的计算时间。如果一个数据库系统需要快速地对内部的元素进行迭代、更新，那么AP树显然不适合这样的场景。
 \end{enumerate}
 
 \section{未来工作}
 由于时间和开发者能力所限，该项目还有许多不完善的地方，在将来可能会对以下方面进行改进或补充。
 \begin{enumerate}
-    \item 当前的\texttt{APTree}中所有的查询项只能在构造函数里一次性注册，而原论文中作者提到可以利用KL散度的计算对查询项进行动态地注册和注销。由于作者并未详细描述其算法，且此项目开发者尚不具备信息论的相应知识，所以并未实现。今后可以尝试阅读相关的文献，在\texttt{APTree}中增加\texttt{Register}和\texttt{Unregister}成员方法，实现该功能。
     \item 我们的实验中只实现了AP树一种结构，并未实现论文中提到的其他空间文本分割结构，所以无法进行比较，不能体现AP树的优势。今后考虑实现IQ树、$\mathrm{R^t}$树、顺序关键词字典树等结构，进行横向比较。
+    \item 当前的\texttt{APTree}尚不具备删除结点的能力，不过在已有函数的基础上可以相对便利地实现这一功能，在今后考虑补充这一功能。
     \item 我们当前的测试只考察了\texttt{APTree}的执行时间，分析了时间复杂度方面的性质，对于其内存占用的情况只做了定性的分析与简单的记录。今后考虑直接使用或设计相应的测试工具，对其内存的使用情况进行具体的跟踪。
 \end{enumerate}
 
