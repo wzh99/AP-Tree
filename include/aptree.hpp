@@ -21,6 +21,7 @@ private:
     struct SpatialPartition;
 
     Node *root; // root node of the whole AP-Tree
+    size_t nQry; // count actual stored queries in the tree
     std::vector<std::string> dict; // stores all the vocabulary
     std::unordered_map<std::string, size_t> dictIndex; // stores index of keywords in dictionary
     const size_t f; // partition of f-ary tree node

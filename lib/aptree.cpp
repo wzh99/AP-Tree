@@ -200,7 +200,7 @@ struct APTree::Node {
 };
 
 APTree::APTree(const std::vector<std::string> &vocab, const std::vector<Query> &queries, size_t f, size_t theta_Q, double theta_KL)
-    : dict(vocab.begin(), vocab.end()), f(f), theta_Q(theta_Q), theta_KL(theta_KL)
+    : dict(vocab.begin(), vocab.end()), nQry(0), f(f), theta_Q(theta_Q), theta_KL(theta_KL)
 {
     // Build vocabulary index map
     for (size_t i = 0; i < dict.size(); i++)
@@ -220,6 +220,7 @@ APTree::APTree(const std::vector<std::string> &vocab, const std::vector<Query> &
     std::sort(nestedQueries.begin(), nestedQueries.end());
     auto newEnd = std::unique(nestedQueries.begin(), nestedQueries.end());
     nestedQueries.erase(newEnd, nestedQueries.end());
+    nQry = nestedQueries.size();
 
     // Build nested query pointer vector
     std::vector<QueryNested *> nstdQryPtrs;
@@ -757,7 +758,7 @@ void APTree::Register(const std::vector<Query> &newQry)
         root = newRoot;
     }
     
-    // COUT(collectAndMerge(root, std::vector<QueryNested *>()).size())
+    nQry = collectAndMerge(root, std::vector<QueryNested *>()).size();
 }
 
 APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQry)
@@ -817,6 +818,7 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
             double bKL = wOld * std::log10(1.0 + wAdd / wOld);
             D_KL += bKL;
         }
+        D_KL /= double(nQry); // normalize D_KL to make the comparison between D_KL and theta_KL independent of actual workload
 
         if (D_KL > theta_KL) {
             // Reconstruct node if D_KL exceeds threshold theta_KL
@@ -878,6 +880,7 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
             double bKL = wOld * std::log10(1.0 + wAdd / wOld);
             D_KL += bKL;
         }
+        D_KL /= double(nQry);
 
         if (D_KL > theta_KL) {
             // Reconstruct current node
