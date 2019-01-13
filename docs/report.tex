@@ -4,7 +4,6 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{appendix}
-\usepackage{diagbox}
 \usepackage{enumerate}
 \usepackage{fontspec}
 \usepackage{geometry}
@@ -139,11 +138,112 @@ AP树的构建和查询算法基本根据原论文所给的伪代码来实现，
 在具体实现中，为了节省内存占用，传入注册函数的$Q$实际上是\texttt{const std::vector<QueryNested *> \&}，该算法一定能保证存储新的查询项时，这些指针都能顺利取值。原因要从\texttt{Node}和\texttt{QueryNested}的生命周期来找。将\texttt{QueryNested}的指针“落实”为实际的值只有两种途径：一是动态注册函数里将$N.Q$和$Q$归并，二是在构建索引函数里将$Q$存进q-node。根据上述算法，这两个动作均发生在重置结点之前。那么在执行重置子结点之前，可以保证原先的子树保持原样，而新的子树已经建立完毕。这样只要调用\texttt{std::unique\_ptr}里的\texttt{reset}方法，即可将原先的子树完全析构，并指向新的子结点。
 
 \section{性能测试}
+\subsection{时间性能}
+以下我们对\texttt{APTree}的时间性能进行测试。构建的时间主要通过总体构建时间来反应，匹配的性能主要通过平均匹配时间来反映，所有的匹配时间均是匹配2000次后的均值。在未提及时，各项参数默认为：
+\begin{enumerate}[1)]
+\item $f=16, \theta_q=10$；
+\item 每个查询项中含3个关键词，共5000个；区域的边长为0.1到0.01间的随机数，在$[0, 1)^2$的空间内均匀分布；
+\item 每个空间文本对象含有7个关键词，共2000个，位置服从$[0, 1)^2上$的均匀分布；
+\item 总词汇量为2000个。
+\end{enumerate}
 
+\textbf{查询项数量的影响}\quad 图\ref{construct_nq}描述了总体构建时间和查询项数目的关系，并进行了曲线拟合。该曲线为二次曲线，说明构建树的时间复杂度近似为$O(|Q|^2)$。图\ref{match_nq}则描述了平均匹配时间和查询项数目的关系，当查询项数量从1250上升到20000个时，匹配时间也有所上升，这符合我们直观的认知。但匹配时间总体比较平稳，说明AP树能够应对大体量的查询任务。
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{construct_nq.png}
+        \caption{总建树时间与$|Q|$的关系}
+        \label{construct_nq}
+    \end{minipage}
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{match_nq.png}
+        \caption{平均匹配时间与$|Q|$的关系}
+        \label{match_nq}
+    \end{minipage}
+\end{figure}
+
+\textbf{$f$的影响}\quad 从理论上来说，$f$太小，每个关键词结点的分割数就少，无法完全发挥关键词分割方法的优势。$f$太大，AP树的自适应性就会变差。图\ref{construct_f}描述了建树时间与$f$的关系，图\ref{match_f}描述了匹配时间与$f$的关系。其中$f$的变化范围为10-100。当$f$逐渐增大时，建树时间逐渐增加，匹配时间差异不大。
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{construct_f.png}
+        \caption{总建树时间与$f$的关系}
+        \label{construct_f}
+    \end{minipage}
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{match_f.png}
+        \caption{平均匹配时间与$f$的关系}
+        \label{match_f}
+    \end{minipage}
+\end{figure}
+
+\textbf{$\theta_q$的影响}\quad 图\ref{construct_thetaq}描述了建树时间与$\theta_q$的关系，图\ref{match_thetaq}描述了匹配时间与$\theta_q$的关系。其中$\theta_q$的变化范围为10-100。可以看到$\theta_q$对匹配时间没有什么显著的影响，但对建树时间影响较大。当$\theta_q$小于40时的确起到了限制的作用，导致建树时间变长。当$\theta_q$较大时，实际情况就达不到这个界限了，因此之后的建树时间基本稳定。
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{construct_thetaq.png}
+        \caption{总建树时间与$\theta_q$的关系}
+        \label{construct_thetaq}
+    \end{minipage}
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{match_thetaq.png}
+        \caption{平均匹配时间与$\theta_q$的关系}
+        \label{match_thetaq}
+    \end{minipage}
+\end{figure}
+
+\textbf{每个查询项中关键词个数的影响}\quad 图\ref{match_nk}描述了关键词个数与匹配时间的关系。由图可知当关键词个数从由2个增加到6个时，匹配时间逐渐下降，因为可能匹配成功的查询项显著减少了，匹配的效率增加了。
+
+\textbf{查询项区域面积的影响}\quad 图\ref{match_reg}描述了查询项区域的面积和匹配时间的关系。为方便实现，通过控制查询项边长的方法控制区域面积的变化。设整个区域面积为1，边长范围为0.00001-0.1。和预想的一样，AP树匹配算法的效率对面积的变化非常敏感。当查询项覆盖面积较大时，其重叠部分增多，导致AP树更可能采用关键词的分割方法。而查询项面积较小时，空间的分割方法优势更大。当边长很小时，查询项的覆盖面积接近于一个点，它落在空间分割的边界上的概率很小，导致空间分割的查找效率变高。
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{match_nk.png}
+        \caption{平均匹配时间与查询项中关键词个数的关系}
+        \label{match_nk}
+    \end{minipage}
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{match_reg.png}
+        \caption{平均匹配时间与查询项边长的关系}
+        \label{match_reg}
+    \end{minipage}
+\end{figure}
+
+\subsection{空间性能}
+下面我们来考察\texttt{APTree}的空间性能。各项参数和上一节时间性能相同，改变查询项数目，分别测量建树时的峰值内存和建树完毕后稳定的索引内存占用情况。
+
+峰值内存占用如图\ref{ram_peak}所示，可以看到峰值内存占用随查询项个数增长较快，估计空间复杂度在$O(|Q|^{2.2})$左右。这主要是执行启发式算法时，需要存储所有的查询项统计信息所致，而构建根节点时需要统计所有的查询项，所以峰值出现在此时。稳定的索引内存占用如图\ref{ram_stable}所示，可以看到索引内存占用随查询项个数增长较为缓和，估计空间复杂度在$O(|Q|^{1.1})$左右。由于索引内存主要由查询项和结点信息构成，而结点信息与查询项相比少得多，所以空间复杂度只比线性稍微高一点。
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{ram_peak.png}
+        \caption{峰值内存与查询项个数的关系}
+        \label{ram_peak}
+    \end{minipage}
+    \begin{minipage}[t]{8cm}
+        \centering
+        \includegraphics[width=7.5cm]{ram_stable.png}
+        \caption{稳定索引内存和查询项个数的关系}
+        \label{ram_stable}
+    \end{minipage}
+\end{figure}
 
 \section{评价}
 \subsection{优势}
-原论文中也提了几种其他用于解决类似问题的结构，如$\mathrm{R^t}$树和IQ树。它们有一个共通点：无论查询项中关键词和空间信息有何特点，在建立索引时空间因素始终优先于关键词因素。相比而言，AP树有以下几点优势：
 \begin{enumerate}
     \item AP树在处理不同的数据集时匹配对象的速度快。因为对有些数据集来说关键词和空间两种匹配模式的效率差别很大，AP树可以很好地利用它的自适应性选择最优的匹配方式。
     \item 当AP树应对较多查询项时，依然能保证较高的效率。
@@ -152,8 +252,8 @@ AP树的构建和查询算法基本根据原论文所给的伪代码来实现，
 
 \subsection{不足}
 \begin{enumerate}
-    \item AP树对于空间的需求量较大。在存储实现中可以看到，尽管对于结点的存储方案已经做了一定优化，但是单个结点占用空间依然较大。在树的构建过程中，每一层递归都需要储存对应结点查询项的统计信息。当查询项的总数较大时，势必造成内存占用的激增。在我们的测试中，在注册了5000个查询项后，内存占用就超过了90MB。如果是实际应用中上百万的查询项，其内存占用是相当巨大的。
-    \item AP树的构造较为复杂，建树的耗时较长。AP树由于要对两种分割模式进行混合，就要比其它分割树多消耗一倍以上的计算时间。如果一个数据库系统需要快速地对内部的元素进行迭代、更新，那么AP树显然不适合这样的场景。
+    \item AP树对于空间的需求量较大。在存储实现中可以看到，在树的构建过程中，每一层递归都需要储存对应结点查询项的统计信息。当查询项的总数较大时，势必造成内存占用的激增。在我们的测试中，在注册了10000个查询项后，内存峰值占用就超过了160MB。如果是实际应用中上百万的查询项，其内存占用是相当巨大的。
+    \item AP树的构造较为复杂，建树的耗时较长。AP树由于要对两种分割模式进行混合，就要比其它分割树多消耗一倍以上的计算时间。受限于硬件水平，我们的测试中查询项个数仅为5000个，即便如此，AP树的建树时间也已经达到了4s以上，虽然匹配效率较高，但该算法在实际应用中过长的建树时间和维护时间将成为主要的弊端。如果一个数据库系统需要快速地对内部的元素进行迭代、更新，那么AP树显然不适合这样的场景。
 \end{enumerate}
 
 \section{未来工作}
@@ -161,7 +261,7 @@ AP树的构建和查询算法基本根据原论文所给的伪代码来实现，
 \begin{enumerate}
     \item 我们的实验中只实现了AP树一种结构，并未实现论文中提到的其他空间文本分割结构，所以无法进行比较，不能体现AP树的优势。今后考虑实现IQ树、$\mathrm{R^t}$树、顺序关键词字典树等结构，进行横向比较。
     \item 当前的\texttt{APTree}尚不具备删除结点的能力，不过在已有函数的基础上可以相对便利地实现这一功能，在今后考虑补充这一功能。
-    \item 我们当前的测试只考察了\texttt{APTree}的执行时间，分析了时间复杂度方面的性质，对于其内存占用的情况只做了定性的分析与简单的记录。今后考虑直接使用或设计相应的测试工具，对其内存的使用情况进行具体的跟踪。
+    \item 我们当前的测试只考察了\texttt{APTree}在时间和空间复杂度的性质，对其结点的构造不甚清楚。今后可以考虑设计相应工具，对不同查询项负载和分布下，两种分割方式占比，以及各类结点各自的内存占用等信息，作详尽的分析测试。
 \end{enumerate}
 
 \newpage
@@ -184,7 +284,7 @@ AP树的构建和查询算法基本根据原论文所给的伪代码来实现，
 \begin{itemize}
     \item \textbf{代码实现：} 王梓涵
     \item \textbf{数据测试：} 刘权
-    \item \textbf{报告撰写：} 周昕逸\quad 王梓涵\quad 刘权
+    \item \textbf{报告撰写：} 王梓涵\quad 周昕逸\quad 刘权
 \end{itemize}
 
 \end{appendices}

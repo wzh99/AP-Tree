@@ -844,7 +844,7 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
 
             // Distribute queries to corresponding cuts
             for (size_t i = 0; i < node->keyword->nPart; i++) {
-                auto cutNewQry = cutQryStat[i];
+                auto &cutNewQry = cutQryStat[i];
                 auto oldNode = node->keyword->children[i].get();
                 auto newNode = regist(oldNode, cutNewQry);
                 if (newNode != oldNode) 
@@ -906,7 +906,7 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
 
             // Distribute queries to corresponding cells
             for (size_t idx = 0; idx < nPartX * nPartY; idx++) {
-                auto cellNewQry = cellQryStat[idx];
+                auto &cellNewQry = cellQryStat[idx];
                 auto newNode = regist(node->spatial->cells[idx].get(), cellNewQry);
                 if (newNode != node->spatial->cells[idx].get())
                     node->spatial->cells[idx].reset(newNode);
