@@ -835,7 +835,7 @@ APTree::Node * APTree::regist(Node *node, const std::vector<QueryNested *> &newQ
                     auto newDmyNode = regist(node->dummy.get(), dmyQry);
                     if (newDmyNode != node->dummy.get())
                         node->dummy.reset(newDmyNode);
-;               }
+                }
                 else {
                     node->dummy = std::make_unique<Node>(node->offset + 1, node->bound, false, node->useSp);
                     build(node->dummy.get(), dmyQry);
